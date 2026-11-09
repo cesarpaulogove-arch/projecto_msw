@@ -3,23 +3,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
-  try {
-    const phone = request.nextUrl.searchParams.get("phone")?.trim();
+  // Ler os parâmetros antes do try/catch
+  const url = new URL(request.url);
+  const phone = url.searchParams.get("phone")?.trim();
 
+  try {
     if (!phone || phone.length < 7 || phone.length > 40) {
       return NextResponse.json(
         { error: "Número de telefone inválido." },
-        { status: 400 }
+        {
+          status: 400,
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+          },
+        }
       );
     }
 
     const cotacao = await prisma.quotation.findFirst({
-      where: {
-        phone,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: { phone },
+      orderBy: { createdAt: "desc" },
       select: {
         customerName: true,
         company: true,
@@ -29,18 +32,10 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    if (!cotacao) {
-      return NextResponse.json({
-        found: false,
-        customer: null,
-      });
-    }
-
     return NextResponse.json(
-      {
-        found: true,
-        customer: cotacao,
-      },
+      cotacao
+        ? { found: true, customer: cotacao }
+        : { found: false, customer: null },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0",
