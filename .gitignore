@@ -30,12 +30,24 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# Environment variables
 .env*
-
+!.env.example
+# AI Agents e skills locais
+/.agents/
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
+
+# Prisma Client gerado
+/generated/
+
+# Ferramentas auxiliares de IA
+/.claude/
+/.windsurf/
+/skills-lock.json
