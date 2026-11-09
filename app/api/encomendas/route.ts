@@ -24,8 +24,7 @@ function normalizarTelefone(telefone: string) {
 }
 
 function gerarReferencia() {
-  const data = new Date();
-  const ano = data.getFullYear();
+  const ano = new Date().getFullYear();
   const codigo = randomBytes(4).toString("hex").toUpperCase();
 
   return `MSW-${ano}-${codigo}`;
@@ -117,6 +116,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 2. Validar produtos da encomenda
     if (!Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json(
         { error: "A encomenda deve conter pelo menos um produto." },
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Validar quantidades e IDs
+    // 3. Agrupar quantidades por produto
     const quantidades = new Map<string, number>();
 
     for (const item of body.items) {
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     const ids = [...quantidades.keys()];
 
-    // 3. Criar encomenda e actualizar stock numa transacção
+    // 4. Validar disponibilidade e criar encomenda
     const encomenda = await prisma.$transaction(
       async (tx) => {
         const produtos = await tx.product.findMany({
@@ -179,8 +179,9 @@ export async function POST(request: NextRequest) {
         const linhas = produtos.map((produto) => {
           const quantity = quantidades.get(produto.id)!;
 
-          if (produto.stock < quantity) {
-            throw new Error(`STOCK_INSUFICIENTE:${produto.name}`);
+          // Verificar disponibilidade do produto
+          if (!produto.inStock) {
+            throw new Error(`PRODUTO_INDISPONIVEL:${produto.name}`);
           }
 
           const unitPrice = new Prisma.Decimal(produto.price);
@@ -195,6 +196,7 @@ export async function POST(request: NextRequest) {
           };
         });
 
+        // 5. Calcular valores da encomenda
         const subtotal = linhas.reduce(
           (total, item) => total.add(item.subtotal),
           new Prisma.Decimal(0)
@@ -204,6 +206,7 @@ export async function POST(request: NextRequest) {
         const deliveryFee = new Prisma.Decimal(0);
         const total = subtotal.add(deliveryFee);
 
+        // 6. Registar encomenda e respectivos produtos
         const novaEncomenda = await tx.order.create({
           data: {
             orderNumber: gerarReferencia(),
@@ -225,28 +228,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Actualizar stock com condição atómica
-        for (const item of linhas) {
-          const actualizacao = await tx.product.updateMany({
-            where: {
-              id: item.productId,
-              active: true,
-              stock: {
-                gte: item.quantity,
-              },
-            },
-            data: {
-              stock: {
-                decrement: item.quantity,
-              },
-            },
-          });
-
-          if (actualizacao.count !== 1) {
-            throw new Error("STOCK_INSUFICIENTE");
-          }
-        }
-
+        // Não alterar inStock nem efectuar desconto de quantidades.
         return novaEncomenda;
       },
       {
@@ -256,6 +238,7 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    // 7. Resposta de sucesso
     return NextResponse.json(
       {
         success: true,
@@ -279,16 +262,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message === "PRODUTO_INDISPONIVEL") {
+      if (
+        error.message === "PRODUTO_INDISPONIVEL" ||
+        error.message.startsWith("PRODUTO_INDISPONIVEL:")
+      ) {
         return NextResponse.json(
           { error: "Um ou mais produtos já não estão disponíveis." },
-          { status: 409 }
-        );
-      }
-
-      if (error.message.startsWith("STOCK_INSUFICIENTE")) {
-        return NextResponse.json(
-          { error: "Stock insuficiente para um ou mais produtos." },
           { status: 409 }
         );
       }
@@ -299,7 +278,10 @@ export async function POST(request: NextRequest) {
       error.code === "P2034"
     ) {
       return NextResponse.json(
-        { error: "Conflito ao processar a encomenda. Tente novamente." },
+        {
+          error:
+            "Conflito ao processar a encomenda. Tente novamente.",
+        },
         { status: 409 }
       );
     }

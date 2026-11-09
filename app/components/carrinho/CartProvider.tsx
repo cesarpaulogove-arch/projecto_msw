@@ -31,15 +31,18 @@ interface ContextoCarrinho {
   itens: ItemCarrinho[];
   adicionar: (produto: ProdutoCarrinho) => void;
   remover: (produtoId: string) => void;
-  atualizarQuantidade: (produtoId: string, quantidade: number) => void;
+  atualizarQuantidade: (
+    produtoId: string,
+    quantidade: number
+  ) => void;
   limpar: () => void;
   total: number;
   quantidadeTotal: number;
 }
 
-const CarrinhoContext = createContext<ContextoCarrinho | undefined>(
-  undefined
-);
+const CarrinhoContext = createContext<
+  ContextoCarrinho | undefined
+>(undefined);
 
 const STORAGE_KEY = "msw_carrinho";
 
@@ -58,15 +61,9 @@ function validarItem(item: unknown): item is ItemCarrinho {
     p.images === undefined ||
     (
       Array.isArray(p.images) &&
-      p.images.every((imagem) => typeof imagem === "string")
-    );
-
-  // Compatibilidade com carrinhos antigos
-  const disponibilidadeValida =
-    typeof p.inStock === "boolean" ||
-    (
-      typeof p.stock === "number" &&
-      Number.isFinite(p.stock)
+      p.images.every(
+        (imagem) => typeof imagem === "string"
+      )
     );
 
   return (
@@ -91,10 +88,10 @@ function validarItem(item: unknown): item is ItemCarrinho {
         Number.isFinite(p.rating)
       )
     ) &&
-    disponibilidadeValida &&
+    typeof p.inStock === "boolean" &&
     typeof p.promotion === "boolean" &&
     typeof valor.quantidade === "number" &&
-    Number.isInteger(valor.quantidade) &&
+    Number.isSafeInteger(valor.quantidade) &&
     valor.quantidade > 0
   );
 }
@@ -118,34 +115,23 @@ export function CarrinhoProvider({
         if (Array.isArray(parsed)) {
           const validos: ItemCarrinho[] = parsed
             .filter(validarItem)
-            .map((item) => {
-              const produtoAntigo = item.produto as ProdutoCarrinho & {
-                stock?: number;
-              };
-
-              const inStock =
-                typeof produtoAntigo.inStock === "boolean"
-                  ? produtoAntigo.inStock
-                  : Number(produtoAntigo.stock ?? 0) > 0;
-
-              const produtoNormalizado: ProdutoCarrinho = {
-                ...produtoAntigo,
-                rating: produtoAntigo.rating ?? 0,
-                inStock,
-                images: produtoAntigo.images ?? [],
-              };
-
-              return {
-                produto: produtoNormalizado,
-                quantidade: item.quantidade,
-              };
-            });
+            .map((item) => ({
+              produto: {
+                ...item.produto,
+                rating: item.produto.rating ?? 0,
+                images: item.produto.images ?? [],
+              },
+              quantidade: item.quantidade,
+            }));
 
           setItens(validos);
         }
       }
     } catch (error) {
-      console.error("Erro ao recuperar carrinho:", error);
+      console.error(
+        "Erro ao recuperar carrinho:",
+        error
+      );
 
       try {
         localStorage.removeItem(STORAGE_KEY);
@@ -162,9 +148,15 @@ export function CarrinhoProvider({
     if (!carregado) return;
 
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(itens));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(itens)
+      );
     } catch (error) {
-      console.error("Erro ao guardar carrinho:", error);
+      console.error(
+        "Erro ao guardar carrinho:",
+        error
+      );
     }
   }, [itens, carregado]);
 
@@ -213,24 +205,41 @@ export function CarrinhoProvider({
   // Remover produto
   function remover(produtoId: string) {
     setItens((atuais) =>
-      atuais.filter((item) => item.produto.id !== produtoId)
+      atuais.filter(
+        (item) => item.produto.id !== produtoId
+      )
     );
   }
 
-  // Actualizar quantidade sem limite de stock
+  // Actualizar quantidade
   function atualizarQuantidade(
     produtoId: string,
     quantidade: number
   ) {
-    if (!Number.isFinite(quantidade)) return;
+    if (
+      !Number.isSafeInteger(quantidade) ||
+      quantidade < 1
+    ) {
+      return;
+    }
 
     setItens((atuais) =>
       atuais.map((item) => {
-        if (item.produto.id !== produtoId) return item;
+        if (item.produto.id !== produtoId) {
+          return item;
+        }
+
+        // Não aumentar produtos indisponíveis
+        if (
+          !item.produto.inStock &&
+          quantidade > item.quantidade
+        ) {
+          return item;
+        }
 
         return {
           ...item,
-          quantidade: Math.max(1, Math.floor(quantidade)),
+          quantidade,
         };
       })
     );

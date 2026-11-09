@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -36,7 +37,11 @@ interface ClienteEncontrado {
   endereco: string;
 }
 
-type EstadoCliente = "inicial" | "pesquisando" | "encontrado" | "novo";
+type EstadoCliente =
+  | "inicial"
+  | "pesquisando"
+  | "encontrado"
+  | "novo";
 
 export default function FinalizarEncomendaPage() {
   const {
@@ -66,7 +71,6 @@ export default function FinalizarEncomendaPage() {
   const [encomenda, setEncomenda] =
     useState<EncomendaCriada | null>(null);
 
-  // A entrega é opcional
   const [zonaEntrega, setZonaEntrega] = useState("");
 
   const formatarPreco = (valor: number) =>
@@ -74,6 +78,14 @@ export default function FinalizarEncomendaPage() {
       style: "currency",
       currency: "MZN",
     });
+
+  // Verificar disponibilidade dos produtos
+  const produtosIndisponiveis = itens.filter(
+    (item) => !item.produto.inStock
+  );
+
+  const temProdutosIndisponiveis =
+    produtosIndisponiveis.length > 0;
 
   // PESQUISAR CLIENTE PELO TELEFONE
   async function pesquisarCliente() {
@@ -104,7 +116,8 @@ export default function FinalizarEncomendaPage() {
 
       if (!resposta.ok || !dados.success) {
         throw new Error(
-          dados.error || "Não foi possível pesquisar o cliente."
+          dados.error ||
+            "Não foi possível pesquisar o cliente."
         );
       }
 
@@ -155,13 +168,9 @@ export default function FinalizarEncomendaPage() {
 
   // SELECCIONAR OU CANCELAR ENTREGA
   function seleccionarZona(zona: string) {
-    setZonaEntrega((actual) => {
-      if (actual === zona) {
-        return "";
-      }
-
-      return zona;
-    });
+    setZonaEntrega((actual) =>
+      actual === zona ? "" : zona
+    );
 
     setErro("");
   }
@@ -181,15 +190,25 @@ export default function FinalizarEncomendaPage() {
       return;
     }
 
-    // Nome e telefone são os únicos dados obrigatórios
-    if (!nome.trim() || !telefone.trim()) {
-      setErro("Preenche o nome e o número de telefone.");
+    // Impedir encomenda de produtos indisponíveis
+    if (temProdutosIndisponiveis) {
+      setErro(
+        "Existem produtos indisponíveis no carrinho. Remove-os antes de continuar."
+      );
       return;
     }
 
-    // O endereço só é obrigatório quando existe entrega
+    if (!nome.trim() || !telefone.trim()) {
+      setErro(
+        "Preenche o nome e o número de telefone."
+      );
+      return;
+    }
+
     if (zonaEntrega && !endereco.trim()) {
-      setErro("Introduz o endereço para realizar a entrega.");
+      setErro(
+        "Introduz o endereço para realizar a entrega."
+      );
       return;
     }
 
@@ -205,11 +224,10 @@ export default function FinalizarEncomendaPage() {
           customerName: nome.trim(),
           phone: telefone.trim(),
           email: email.trim() || undefined,
-
-          // Só envia endereço e zona quando a entrega é seleccionada
-          address: zonaEntrega ? endereco.trim() : undefined,
+          address: zonaEntrega
+            ? endereco.trim()
+            : "A combinar",
           district: zonaEntrega || undefined,
-
           items: itens.map((item) => ({
             productId: item.produto.id,
             quantity: item.quantidade,
@@ -221,7 +239,8 @@ export default function FinalizarEncomendaPage() {
 
       if (!resposta.ok || !dados?.success) {
         throw new Error(
-          dados?.error || "Não foi possível registar a encomenda."
+          dados?.error ||
+            "Não foi possível registar a encomenda."
         );
       }
 
@@ -339,6 +358,21 @@ export default function FinalizarEncomendaPage() {
           </div>
         )}
 
+        {temProdutosIndisponiveis && (
+          <div
+            role="alert"
+            className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          >
+            <p className="font-bold">
+              Existem produtos indisponíveis.
+            </p>
+
+            <p className="mt-1">
+              Remove os produtos assinalados como indisponíveis para poderes finalizar a encomenda.
+            </p>
+          </div>
+        )}
+
         {itens.length === 0 ? (
           <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center">
             <ShoppingBag className="mx-auto h-14 w-14 text-gray-300" />
@@ -388,7 +422,9 @@ export default function FinalizarEncomendaPage() {
                     <input
                       type="tel"
                       value={telefone}
-                      onChange={(e) => setTelefone(e.target.value)}
+                      onChange={(e) =>
+                        setTelefone(e.target.value)
+                      }
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
@@ -519,7 +555,9 @@ export default function FinalizarEncomendaPage() {
                             <input
                               required
                               value={nome}
-                              onChange={(e) => setNome(e.target.value)}
+                              onChange={(e) =>
+                                setNome(e.target.value)
+                              }
                               placeholder="Introduz o teu nome"
                               autoComplete="name"
                               className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
@@ -535,7 +573,9 @@ export default function FinalizarEncomendaPage() {
                             <input
                               type="email"
                               value={email}
-                              onChange={(e) => setEmail(e.target.value)}
+                              onChange={(e) =>
+                                setEmail(e.target.value)
+                              }
                               placeholder="exemplo@email.com"
                               autoComplete="email"
                               className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
@@ -639,7 +679,9 @@ export default function FinalizarEncomendaPage() {
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <button
                               type="button"
-                              onClick={() => seleccionarZona("MAPUTO")}
+                              onClick={() =>
+                                seleccionarZona("MAPUTO")
+                              }
                               className={`rounded-xl border p-4 text-left transition ${
                                 zonaEntrega === "MAPUTO"
                                   ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -657,7 +699,9 @@ export default function FinalizarEncomendaPage() {
 
                             <button
                               type="button"
-                              onClick={() => seleccionarZona("MATOLA")}
+                              onClick={() =>
+                                seleccionarZona("MATOLA")
+                              }
                               className={`rounded-xl border p-4 text-left transition ${
                                 zonaEntrega === "MATOLA"
                                   ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -685,7 +729,9 @@ export default function FinalizarEncomendaPage() {
                             required
                             rows={3}
                             value={endereco}
-                            onChange={(e) => setEndereco(e.target.value)}
+                            onChange={(e) =>
+                              setEndereco(e.target.value)
+                            }
                             placeholder="Rua, avenida, número ou ponto de referência"
                             autoComplete="street-address"
                             className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
@@ -748,7 +794,11 @@ export default function FinalizarEncomendaPage() {
 
                   <button
                     type="submit"
-                    disabled={aEnviar || itens.length === 0}
+                    disabled={
+                      aEnviar ||
+                      itens.length === 0 ||
+                      temProdutosIndisponiveis
+                    }
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-6 py-4 font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {aEnviar ? (
@@ -803,6 +853,12 @@ export default function FinalizarEncomendaPage() {
                         )}
                       </p>
 
+                      {!item.produto.inStock && (
+                        <p className="mt-1 text-xs font-semibold text-red-600">
+                          Produto indisponível
+                        </p>
+                      )}
+
                       <div className="mt-3 flex items-center gap-2">
                         <button
                           type="button"
@@ -831,9 +887,7 @@ export default function FinalizarEncomendaPage() {
                               item.quantidade + 1
                             )
                           }
-                          disabled={
-                            item.quantidade >= item.produto.stock
-                          }
+                          disabled={!item.produto.inStock}
                           className="rounded-lg border p-1.5 disabled:opacity-40"
                           aria-label="Aumentar quantidade"
                         >
@@ -842,7 +896,9 @@ export default function FinalizarEncomendaPage() {
 
                         <button
                           type="button"
-                          onClick={() => remover(item.produto.id)}
+                          onClick={() =>
+                            remover(item.produto.id)
+                          }
                           className="ml-auto rounded-lg p-1.5 text-red-500 hover:bg-red-50"
                           aria-label="Remover produto"
                         >

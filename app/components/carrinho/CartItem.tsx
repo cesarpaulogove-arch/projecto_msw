@@ -20,6 +20,7 @@ export default function CartItem({
   const { produto, quantidade } = item;
 
   const subtotal = produto.price * quantidade;
+  const disponivel = produto.inStock;
 
   const formatarPreco = (valor: number) =>
     valor.toLocaleString("pt-MZ", {
@@ -69,9 +70,20 @@ export default function CartItem({
             )}
         </div>
 
-        <p className="mt-1 text-xs text-gray-500">
-          Stock disponível: {produto.stock}
-        </p>
+        {/* Disponibilidade */}
+        <div className="mt-2">
+          {disponivel ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-700">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              Disponível
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              Indisponível
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Quantidade e remoção */}
@@ -98,7 +110,7 @@ export default function CartItem({
             onClick={() =>
               atualizarQuantidade(produto.id, quantidade + 1)
             }
-            disabled={quantidade >= produto.stock}
+            disabled={!disponivel}
             aria-label={`Aumentar quantidade de ${produto.name}`}
             className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-30"
           >

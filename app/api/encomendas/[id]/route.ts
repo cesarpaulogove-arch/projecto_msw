@@ -127,63 +127,43 @@ export async function PATCH(
       );
     }
 
-    // Actualizar encomenda e stock numa transacção
-    const encomenda = await prisma.$transaction(async (tx) => {
-      const actual = await tx.order.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          status: true,
-          items: {
-            select: {
-              productId: true,
-              quantity: true,
-            },
+    // Actualizar estado numa transacção
+    const encomenda = await prisma.$transaction(
+      async (tx) => {
+        const actual = await tx.order.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            status: true,
           },
-        },
-      });
+        });
 
-      if (!actual) {
-        throw new Error("ENCOMENDA_NAO_ENCONTRADA");
-      }
-
-      // Não permitir alterações depois do cancelamento
-      if (actual.status === "CANCELADA") {
-        throw new Error("ENCOMENDA_JA_CANCELADA");
-      }
-
-      // Devolver stock quando a encomenda é cancelada
-      if (estado === "CANCELADA") {
-        for (const item of actual.items) {
-          if (item.productId) {
-            await tx.product.update({
-              where: {
-                id: item.productId,
-              },
-              data: {
-                stock: {
-                  increment: item.quantity,
-                },
-              },
-            });
-          }
+        if (!actual) {
+          throw new Error("ENCOMENDA_NAO_ENCONTRADA");
         }
-      }
 
-      // Guardar novo estado
-      return tx.order.update({
-        where: { id },
-        data: {
-          status: estado as EstadoEncomenda,
-        },
-        include: {
-          items: true,
-        },
-      });
-        }, {
-      maxWait: 10000,
-      timeout: 20000,
-    });
+        // Não permitir alterações depois do cancelamento
+        if (actual.status === "CANCELADA") {
+          throw new Error("ENCOMENDA_JA_CANCELADA");
+        }
+
+        // Guardar novo estado sem alterar a disponibilidade
+        // dos produtos.
+        return tx.order.update({
+          where: { id },
+          data: {
+            status: estado as EstadoEncomenda,
+          },
+          include: {
+            items: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 20000,
+      }
+    );
 
     return NextResponse.json({
       success: true,
