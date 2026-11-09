@@ -1,7 +1,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
+import { enviarNotificacaoEmail } from "@/lib/notificacoes-email";
 
 interface ItemRecebido {
   productId: string;
@@ -23,6 +24,7 @@ interface PedidoCotacao {
 // Exemplo: "150.50" => 15050
 function decimalParaCentavos(valor: string | number): number {
   const texto = String(valor).trim();
+
   const correspondencia = texto.match(
     /^(-?)(\d+)(?:\.(\d+))?$/
   );
@@ -54,13 +56,15 @@ function taxaParaInteiro(valor: string | number): number {
   return decimalParaCentavos(valor);
 }
 
-// Formata centavos para Decimal do Prisma.
+// Converte centavos para formato decimal.
 function formatarDinheiro(centavos: number): string {
   return (centavos / 100).toFixed(2);
 }
 
 function textoOpcional(valor: unknown): string | null {
-  if (typeof valor !== "string") return null;
+  if (typeof valor !== "string") {
+    return null;
+  }
 
   const resultado = valor.trim();
 
@@ -73,6 +77,7 @@ function validarEmail(email: string): boolean {
 
 function gerarNumeroCotacao(): string {
   const ano = new Date().getFullYear();
+
   const codigo = randomUUID()
     .replace(/-/g, "")
     .slice(0, 8)
@@ -90,14 +95,20 @@ export async function POST(request: NextRequest) {
       dados = await request.json();
     } catch {
       return NextResponse.json(
-        { error: "O conteúdo enviado não é um JSON válido." },
+        {
+          success: false,
+          error: "O conteúdo enviado não é um JSON válido.",
+        },
         { status: 400 }
       );
     }
 
     if (!dados || typeof dados !== "object") {
       return NextResponse.json(
-        { error: "Dados da cotação inválidos." },
+        {
+          success: false,
+          error: "Dados da cotação inválidos.",
+        },
         { status: 400 }
       );
     }
@@ -120,49 +131,70 @@ export async function POST(request: NextRequest) {
 
     if (!customerName || customerName.length < 2) {
       return NextResponse.json(
-        { error: "Introduza o nome do cliente." },
+        {
+          success: false,
+          error: "Introduza o nome do cliente.",
+        },
         { status: 400 }
       );
     }
 
     if (customerName.length > 150) {
       return NextResponse.json(
-        { error: "O nome do cliente é demasiado longo." },
+        {
+          success: false,
+          error: "O nome do cliente é demasiado longo.",
+        },
         { status: 400 }
       );
     }
 
     if (!phone || phone.length < 5 || phone.length > 40) {
       return NextResponse.json(
-        { error: "Introduza um contacto telefónico válido." },
+        {
+          success: false,
+          error: "Introduza um contacto telefónico válido.",
+        },
         { status: 400 }
       );
     }
 
     if (email && !validarEmail(email)) {
       return NextResponse.json(
-        { error: "O endereço de email não é válido." },
+        {
+          success: false,
+          error: "O endereço de email não é válido.",
+        },
         { status: 400 }
       );
     }
 
     if (company && company.length > 150) {
       return NextResponse.json(
-        { error: "O nome da empresa é demasiado longo." },
+        {
+          success: false,
+          error: "O nome da empresa é demasiado longo.",
+        },
         { status: 400 }
       );
     }
 
     if (address && address.length > 500) {
       return NextResponse.json(
-        { error: "O endereço é demasiado longo." },
+        {
+          success: false,
+          error: "O endereço é demasiado longo.",
+        },
         { status: 400 }
       );
     }
 
     if (notes && notes.length > 2000) {
       return NextResponse.json(
-        { error: "As observações não podem ultrapassar 2000 caracteres." },
+        {
+          success: false,
+          error: "As observações não podem ultrapassar 2000 caracteres.",
+        },
         { status: 400 }
       );
     }
@@ -173,14 +205,20 @@ export async function POST(request: NextRequest) {
       dados.items.length === 0
     ) {
       return NextResponse.json(
-        { error: "Adicione pelo menos um produto à cotação." },
+        {
+          success: false,
+          error: "Adicione pelo menos um produto à cotação.",
+        },
         { status: 400 }
       );
     }
 
     if (dados.items.length > 100) {
       return NextResponse.json(
-        { error: "A cotação não pode ultrapassar 100 linhas." },
+        {
+          success: false,
+          error: "A cotação não pode ultrapassar 100 linhas.",
+        },
         { status: 400 }
       );
     }
@@ -190,7 +228,10 @@ export async function POST(request: NextRequest) {
     for (const item of dados.items) {
       if (!item || typeof item !== "object") {
         return NextResponse.json(
-          { error: "Existe um produto inválido na cotação." },
+          {
+            success: false,
+            error: "Existe um produto inválido na cotação.",
+          },
           { status: 400 }
         );
       }
@@ -200,22 +241,26 @@ export async function POST(request: NextRequest) {
           ? item.productId.trim()
           : "";
 
-      const quantity = Number(item.quantity);
+      const quantity = item.quantity;
 
       if (!productId) {
         return NextResponse.json(
-          { error: "Identificador de produto inválido." },
+          {
+            success: false,
+            error: "Identificador de produto inválido.",
+          },
           { status: 400 }
         );
       }
 
       if (
-        !Number.isInteger(quantity) ||
+        !Number.isSafeInteger(quantity) ||
         quantity <= 0 ||
         quantity > 100000
       ) {
         return NextResponse.json(
           {
+            success: false,
             error: "A quantidade de cada produto deve ser um número inteiro positivo.",
           },
           { status: 400 }
@@ -231,10 +276,13 @@ export async function POST(request: NextRequest) {
     // 4. Validar validade da cotação
     let validUntil: Date | null = null;
 
-    if (dados.validUntil) {
+    if (dados.validUntil !== undefined && dados.validUntil !== null && dados.validUntil !== "") {
       if (typeof dados.validUntil !== "string") {
         return NextResponse.json(
-          { error: "Data de validade inválida." },
+          {
+            success: false,
+            error: "Data de validade inválida.",
+          },
           { status: 400 }
         );
       }
@@ -243,7 +291,10 @@ export async function POST(request: NextRequest) {
 
       if (Number.isNaN(data.getTime())) {
         return NextResponse.json(
-          { error: "Data de validade inválida." },
+          {
+            success: false,
+            error: "Data de validade inválida.",
+          },
           { status: 400 }
         );
       }
@@ -251,6 +302,7 @@ export async function POST(request: NextRequest) {
       if (data.getTime() <= Date.now()) {
         return NextResponse.json(
           {
+            success: false,
             error: "A validade da cotação deve ser uma data futura.",
           },
           { status: 400 }
@@ -296,8 +348,8 @@ export async function POST(request: NextRequest) {
     if (produtosEmFalta.length > 0) {
       return NextResponse.json(
         {
-          error:
-            "Um ou mais produtos não existem ou estão inactivos. Actualize a cotação.",
+          success: false,
+          error: "Um ou mais produtos não existem ou estão inactivos. Actualize a cotação.",
           productIds: produtosEmFalta,
         },
         { status: 400 }
@@ -381,14 +433,15 @@ export async function POST(request: NextRequest) {
       !Number.isSafeInteger(totalGeral)
     ) {
       return NextResponse.json(
-        { error: "Os valores da cotação ultrapassam o limite permitido." },
+        {
+          success: false,
+          error: "Os valores da cotação ultrapassam o limite permitido.",
+        },
         { status: 400 }
       );
     }
 
     // 8. Criar cotação e respectivas linhas
-    // O nested create garante que a cotação e os produtos
-    // são gravados como uma única operação.
     const cotacao = await prisma.quotation.create({
       data: {
         quoteNumber: gerarNumeroCotacao(),
@@ -418,20 +471,98 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 9. Resposta
+    // 9. Enviar notificação depois de a cotação ser criada.
+    // Uma falha no e-mail não deve invalidar a cotação.
+    try {
+      const emailEnviado = await enviarNotificacaoEmail({
+        tipo: "NOVA COTACAO",
+        referencia: cotacao.quoteNumber,
+        cliente: cotacao.customerName,
+
+        campos: [
+          {
+            nome: "Empresa",
+            valor: cotacao.company || "Não indicada",
+          },
+          {
+            nome: "Telefone",
+            valor: cotacao.phone,
+          },
+          {
+            nome: "Email",
+            valor: cotacao.email || "Não indicado",
+          },
+          {
+            nome: "Endereço",
+            valor: cotacao.address || "Não indicado",
+          },
+          {
+            nome: "Observações",
+            valor: cotacao.notes || "Nenhuma",
+          },
+          {
+            nome: "Subtotal",
+            valor: `${cotacao.subtotal.toString()} MZN`,
+          },
+          {
+            nome: "IVA",
+            valor: `${cotacao.ivaTotal.toString()} MZN`,
+          },
+          {
+            nome: "Total",
+            valor: `${cotacao.total.toString()} MZN`,
+          },
+          {
+            nome: "Validade",
+            valor: cotacao.validUntil
+              ? cotacao.validUntil.toLocaleDateString("pt-MZ", {
+                  timeZone: "Africa/Maputo",
+                })
+              : "Não definida",
+          },
+          {
+            nome: "Estado",
+            valor: cotacao.status,
+          },
+        ],
+
+        itens: cotacao.items.map((item) => ({
+          nome: item.productName,
+          quantidade: item.quantity,
+          preco: `${item.unitPrice.toString()} MZN`,
+          subtotal: `${item.subtotal.toString()} MZN`,
+          iva: `${item.ivaAmount.toString()} MZN`,
+          total: `${item.total.toString()} MZN`,
+        })),
+      });
+
+      if (!emailEnviado) {
+        console.error(
+          `A cotação ${cotacao.quoteNumber} foi criada, mas a notificação não foi enviada.`
+        );
+      }
+    } catch (emailError) {
+      console.error(
+        "ERRO AO ENVIAR NOTIFICAÇÃO DA COTAÇÃO:",
+        emailError
+      );
+    }
+
+    // 10. Resposta de sucesso
     return NextResponse.json(
       {
+        success: true,
         message: "Cotação criada com sucesso.",
         quotation: cotacao,
       },
       { status: 201 }
     );
-
   } catch (error) {
-    console.error("Erro ao criar cotação:", error);
+    console.error("ERRO AO CRIAR COTAÇÃO:", error);
 
     return NextResponse.json(
       {
+        success: false,
         error: "Não foi possível criar a cotação.",
       },
       { status: 500 }

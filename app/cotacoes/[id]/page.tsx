@@ -175,7 +175,7 @@ function CotacaoConteudo() {
             <div className="flex flex-wrap items-start justify-between gap-6">
               <div>
                 <h1 className="text-3xl font-black tracking-wide">
-                  MSW <span className="text-cyan-400">TECH</span>
+                  MSW <span className="text-cyan-400">BUSINESS</span>
                 </h1>
 
                 <p className="mt-2 text-sm text-slate-300">
@@ -367,7 +367,7 @@ function CotacaoConteudo() {
             )}
 
             <footer className="border-t border-slate-200 pt-5 text-center text-xs text-slate-400">
-              <p>MSW TECH — Obrigado pela preferência.</p>
+              <p>MSW BUSINESS — Obrigado pela preferência.</p>
               <p className="mt-1">
                 Esta cotação está sujeita às condições de validade indicadas.
               </p>

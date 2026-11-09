@@ -1,3 +1,4 @@
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -16,9 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MSW BUSINESS | Electronics Store",
+  title: "MSW BUSINESS | Tecnologia e Soluções Electrónicas",
   description:
-    "MSW BUSINESS — Tecnologia, componentes e soluções electrónicas.",
+    "MSW BUSINESS — Loja de componentes electrónicos, equipamentos tecnológicos e soluções para projectos de electrónica.",
 };
 
 export default function RootLayout({
