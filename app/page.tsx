@@ -1,13 +1,12 @@
 
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  ChevronLeft,
-  ChevronRight,
   Search,
   X,
+  ChevronDown,
 } from "lucide-react";
 
 import Hero from "./components/Hero";
@@ -35,18 +34,29 @@ interface ApiProduct {
   promotion?: boolean;
 }
 
+// Quantidade inicial: 3 linhas em cada tamanho de ecrã
+const PRODUTOS_INICIAIS = {
+  mobile: 6,
+  tablet: 9,
+  desktop: 12,
+};
+
+const PRODUTOS_POR_CARGA = 12;
+
 function HomeContent() {
   const [products, setProducts] = useState<ProdutoCarrinho[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [limiteProdutos, setLimiteProdutos] = useState(
+    PRODUTOS_INICIAIS.desktop
+  );
 
   const searchParams = useSearchParams();
   const pesquisa = searchParams.get("pesquisa")?.trim() ?? "";
 
   const { adicionar } = useCarrinho();
-  const carrosselRef = useRef<HTMLDivElement>(null);
 
-  // CARREGAR PRODUTOS, COM OU SEM PESQUISA
+  // CARREGAR PRODUTOS
   useEffect(() => {
     let mounted = true;
 
@@ -82,7 +92,6 @@ function HomeContent() {
 
         const data: unknown = await response.json();
 
-        // ACEITAR ARRAY DIRECTO OU RESPOSTA ENCAPSULADA
         let lista: unknown = data;
 
         if (
@@ -127,6 +136,7 @@ function HomeContent() {
 
         if (mounted) {
           setProducts(produtosFormatados);
+          setLimiteProdutos(PRODUTOS_INICIAIS.desktop);
         }
       } catch (err) {
         if (mounted) {
@@ -157,21 +167,9 @@ function HomeContent() {
     adicionar(product);
   }
 
-  // NAVEGAÇÃO DO CARROSSEL
-  function deslocarCarrossel(
-    direcao: "esquerda" | "direita"
-  ) {
-    const elemento = carrosselRef.current;
-
-    if (!elemento) return;
-
-    elemento.scrollBy({
-      left:
-        direcao === "direita"
-          ? elemento.clientWidth * 0.85
-          : -elemento.clientWidth * 0.85,
-      behavior: "smooth",
-    });
+  // VER MAIS PRODUTOS
+  function verMaisProdutos() {
+    setLimiteProdutos((atual) => atual + PRODUTOS_POR_CARGA);
   }
 
   // LIMPAR PESQUISA
@@ -179,79 +177,27 @@ function HomeContent() {
     window.location.href = "/";
   }
 
+  const produtosVisiveis = products.slice(0, limiteProdutos);
+  const existemMaisProdutos = limiteProdutos < products.length;
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Hero />
+  <div className="min-h-screen bg-gray-50">
 
-      <InfoBlocks />
+    <Hero />
 
-      <section
-        id="produtos"
-        className="mx-auto max-w-[1600px] px-4 py-16 sm:px-6 lg:px-8"
-      >
-        {/* CABEÇALHO */}
-        <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-          <div>
-            <h2 className="text-sm font-bold text-cyan-600">
-              CATÁLOGO MSW BUSINESS
-            </h2>
+    <InfoBlocks />
 
-            <h3 className="mt-2 text-2xl font-black text-[#071B2D]">
-              {pesquisa
-                ? "Resultados da pesquisa"
-                : "Os nossos produtos"}
-            </h3>
-
-            <p className="mt-1 text-sm text-gray-500">
-              {pesquisa
-                ? `Resultados para "${pesquisa}" por nome ou código do componente.`
-                : "Explore os nossos produtos e soluções electrónicas."}
-            </p>
-
-            {pesquisa && (
-              <button
-                type="button"
-                onClick={limparPesquisa}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 transition hover:border-cyan-500 hover:text-cyan-600"
-              >
-                <X size={15} />
-                Limpar pesquisa
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="whitespace-nowrap text-sm text-gray-500">
-              {products.length}{" "}
-              {products.length === 1 ? "produto" : "produtos"}
-            </span>
-
-            {products.length > 1 && (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    deslocarCarrossel("esquerda")
-                  }
-                  aria-label="Produtos anteriores"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-[#071B2D] shadow-sm transition hover:border-cyan-500 hover:bg-cyan-500 hover:text-white"
-                >
-                  <ChevronLeft size={19} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    deslocarCarrossel("direita")
-                  }
-                  aria-label="Produtos seguintes"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-[#071B2D] shadow-sm transition hover:border-cyan-500 hover:bg-cyan-500 hover:text-white"
-                >
-                  <ChevronRight size={19} />
-                </button>
-              </div>
-            )}
-          </div>
+    <section
+      id="produtos"
+      className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8"
+    >
+      {/* Mantém aqui o restante código, começando pelo carregamento */}
+      {/* CABEÇALHO DO CATÁLOGO */}
+        <div className="mb-8">
+          <h2 className="text-xl font-black uppercase tracking-wide text-[#071B2D] sm:text-2xl">
+            CATÁLOGO DOS PRODUTOS
+            <span className="text-cyan-600"> — MSW BUSINESS</span>
+          </h2>
         </div>
 
         {/* CARREGAMENTO */}
@@ -308,28 +254,45 @@ function HomeContent() {
           </div>
         )}
 
-        {/* CARROSSEL */}
+        {/* GRELHA DE PRODUTOS */}
         {!loading && !error && products.length > 0 && (
-          <div
-            ref={carrosselRef}
-            className="flex snap-x snap-mandatory gap-5 overflow-x-auto scroll-smooth pb-5"
-            style={{
-              scrollbarWidth: "thin",
-              scrollbarColor: "#0891b2 #e5e7eb",
-            }}
-          >
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="w-[75%] min-w-[75%] shrink-0 snap-start sm:w-[45%] sm:min-w-[45%] md:w-[31%] md:min-w-[31%] lg:w-[23%] lg:min-w-[23%] xl:w-[18.5%] xl:min-w-[18.5%]"
-              >
-                <ProductCard
-                  product={product}
-                  onAdd={addToCart}
-                />
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
+              {produtosVisiveis.map((product) => (
+                <div key={product.id} className="min-w-0">
+                  <ProductCard
+                    product={product}
+                    onAdd={addToCart}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* BOTÃO VER MAIS */}
+            {existemMaisProdutos && (
+              <div className="mt-12 flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={verMaisProdutos}
+                  className="inline-flex items-center gap-3 rounded-xl bg-[#071B2D] px-8 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-cyan-700 hover:shadow-lg active:scale-95"
+                >
+                  Ver Mais Produtos
+                  <ChevronDown size={18} />
+                </button>
+
+                <p className="mt-3 text-xs text-gray-400">
+                  {products.length - produtosVisiveis.length} produtos por visualizar
+                </p>
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* TODOS OS PRODUTOS VISÍVEIS */}
+            {!existemMaisProdutos && products.length > PRODUTOS_INICIAIS.desktop && (
+              <p className="mt-12 text-center text-sm font-medium text-gray-400">
+                Todos os produtos foram apresentados.
+              </p>
+            )}
+          </>
         )}
       </section>
     </div>
