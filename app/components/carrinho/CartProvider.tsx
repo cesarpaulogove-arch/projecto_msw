@@ -25,20 +25,39 @@ export interface ProdutoCarrinho {
 export interface ItemCarrinho {
   produto: ProdutoCarrinho;
   quantidade: number;
+  selecionado: boolean;
 }
 
 interface ContextoCarrinho {
   itens: ItemCarrinho[];
+  itensSelecionados: ItemCarrinho[];
+
   adicionar: (produto: ProdutoCarrinho) => void;
   remover: (produtoId: string) => void;
+
   atualizarQuantidade: (
     produtoId: string,
     quantidade: number
   ) => void;
+
+  alternarSelecao: (produtoId: string) => void;
+
+  selecionarTodos: (selecionado: boolean) => void;
+
   limpar: () => void;
+
   total: number;
   quantidadeTotal: number;
+
+  totalSelecionado: number;
+  quantidadeSelecionada: number;
+
+  todosSelecionados: boolean;
 }
+
+// ======================================================
+// CONTEXTO
+// ======================================================
 
 const CarrinhoContext = createContext<
   ContextoCarrinho | undefined
@@ -46,14 +65,21 @@ const CarrinhoContext = createContext<
 
 const STORAGE_KEY = "msw_carrinho";
 
-// Validar produto recebido do armazenamento
+// ======================================================
+// VALIDAR DADOS DO LOCALSTORAGE
+// ======================================================
+
 function validarItem(item: unknown): item is ItemCarrinho {
-  if (!item || typeof item !== "object") return false;
+  if (!item || typeof item !== "object") {
+    return false;
+  }
 
   const valor = item as Record<string, unknown>;
   const produto = valor.produto;
 
-  if (!produto || typeof produto !== "object") return false;
+  if (!produto || typeof produto !== "object") {
+    return false;
+  }
 
   const p = produto as Record<string, unknown>;
 
@@ -92,9 +118,17 @@ function validarItem(item: unknown): item is ItemCarrinho {
     typeof p.promotion === "boolean" &&
     typeof valor.quantidade === "number" &&
     Number.isSafeInteger(valor.quantidade) &&
-    valor.quantidade > 0
+    valor.quantidade > 0 &&
+    (
+      valor.selecionado === undefined ||
+      typeof valor.selecionado === "boolean"
+    )
   );
 }
+
+// ======================================================
+// CARRINHO PROVIDER
+// ======================================================
 
 export function CarrinhoProvider({
   children,
@@ -104,7 +138,10 @@ export function CarrinhoProvider({
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
   const [carregado, setCarregado] = useState(false);
 
-  // Recuperar carrinho
+  // ====================================================
+  // RECUPERAR CARRINHO
+  // ====================================================
+
   useEffect(() => {
     try {
       const dados = localStorage.getItem(STORAGE_KEY);
@@ -122,6 +159,12 @@ export function CarrinhoProvider({
                 images: item.produto.images ?? [],
               },
               quantidade: item.quantidade,
+
+              // Produtos antigos ficam seleccionados.
+              selecionado:
+                typeof item.selecionado === "boolean"
+                  ? item.selecionado
+                  : true,
             }));
 
           setItens(validos);
@@ -143,7 +186,10 @@ export function CarrinhoProvider({
     }
   }, []);
 
-  // Guardar carrinho
+  // ====================================================
+  // GUARDAR CARRINHO
+  // ====================================================
+
   useEffect(() => {
     if (!carregado) return;
 
@@ -160,7 +206,10 @@ export function CarrinhoProvider({
     }
   }, [itens, carregado]);
 
-  // Adicionar produto
+  // ====================================================
+  // ADICIONAR PRODUTO
+  // ====================================================
+
   function adicionar(produto: ProdutoCarrinho) {
     if (
       !produto.id ||
@@ -185,6 +234,7 @@ export function CarrinhoProvider({
         return atuais.map((item) =>
           item.produto.id === produto.id
             ? {
+                ...item,
                 produto: produtoNormalizado,
                 quantidade: item.quantidade + 1,
               }
@@ -197,12 +247,16 @@ export function CarrinhoProvider({
         {
           produto: produtoNormalizado,
           quantidade: 1,
+          selecionado: true,
         },
       ];
     });
   }
 
-  // Remover produto
+  // ====================================================
+  // REMOVER PRODUTO COMPLETAMENTE
+  // ====================================================
+
   function remover(produtoId: string) {
     setItens((atuais) =>
       atuais.filter(
@@ -211,15 +265,23 @@ export function CarrinhoProvider({
     );
   }
 
-  // Actualizar quantidade
+  // ====================================================
+  // ACTUALIZAR QUANTIDADE
+  // ====================================================
+
   function atualizarQuantidade(
     produtoId: string,
     quantidade: number
   ) {
     if (
       !Number.isSafeInteger(quantidade) ||
-      quantidade < 1
+      quantidade < 0
     ) {
+      return;
+    }
+
+    if (quantidade === 0) {
+      remover(produtoId);
       return;
     }
 
@@ -229,7 +291,6 @@ export function CarrinhoProvider({
           return item;
         }
 
-        // Não aumentar produtos indisponíveis
         if (
           !item.produto.inStock &&
           quantidade > item.quantidade
@@ -245,34 +306,126 @@ export function CarrinhoProvider({
     );
   }
 
-  // Limpar carrinho
+  // ====================================================
+  // SELECCIONAR / DESSELECCIONAR PRODUTO
+  // ====================================================
+
+  function alternarSelecao(produtoId: string) {
+    setItens((atuais) =>
+      atuais.map((item) =>
+        item.produto.id === produtoId
+          ? {
+              ...item,
+              selecionado: !item.selecionado,
+            }
+          : item
+      )
+    );
+  }
+
+  // ====================================================
+  // SELECCIONAR / DESSELECCIONAR TODOS
+  // ====================================================
+
+  function selecionarTodos(selecionado: boolean) {
+    setItens((atuais) =>
+      atuais.map((item) => ({
+        ...item,
+        selecionado,
+      }))
+    );
+  }
+
+  // ====================================================
+  // LIMPAR TODO O CARRINHO
+  // ====================================================
+
   function limpar() {
     setItens([]);
   }
 
-  // Total financeiro
+  // ====================================================
+  // PRODUTOS SELECCIONADOS
+  // ====================================================
+
+  const itensSelecionados = itens.filter(
+    (item) => item.selecionado
+  );
+
+  // ====================================================
+  // TOTAL DE TODOS OS PRODUTOS
+  // ====================================================
+
   const total = itens.reduce(
     (soma, item) =>
       soma + item.produto.price * item.quantidade,
     0
   );
 
-  // Quantidade total
+  // ====================================================
+  // QUANTIDADE TOTAL
+  // ====================================================
+
   const quantidadeTotal = itens.reduce(
-    (soma, item) => soma + item.quantidade,
+    (soma, item) =>
+      soma + item.quantidade,
     0
   );
+
+  // ====================================================
+  // TOTAL DOS PRODUTOS SELECCIONADOS
+  // ====================================================
+
+  const totalSelecionado = itensSelecionados.reduce(
+    (soma, item) =>
+      soma + item.produto.price * item.quantidade,
+    0
+  );
+
+  // ====================================================
+  // QUANTIDADE DOS PRODUTOS SELECCIONADOS
+  // ====================================================
+
+  const quantidadeSelecionada = itensSelecionados.reduce(
+    (soma, item) =>
+      soma + item.quantidade,
+    0
+  );
+
+  // ====================================================
+  // VERIFICAR SE TODOS ESTÃO SELECCIONADOS
+  // ====================================================
+
+  const todosSelecionados =
+    itens.length > 0 &&
+    itens.every((item) => item.selecionado);
+
+  // ====================================================
+  // PROVIDER
+  // ====================================================
 
   return (
     <CarrinhoContext.Provider
       value={{
         itens,
+        itensSelecionados,
+
         adicionar,
         remover,
         atualizarQuantidade,
+
+        alternarSelecao,
+        selecionarTodos,
+
         limpar,
+
         total,
         quantidadeTotal,
+
+        totalSelecionado,
+        quantidadeSelecionada,
+
+        todosSelecionados,
       }}
     >
       {children}
@@ -280,7 +433,10 @@ export function CarrinhoProvider({
   );
 }
 
-// Hook global
+// ======================================================
+// HOOK GLOBAL
+// ======================================================
+
 export function useCarrinho() {
   const context = useContext(CarrinhoContext);
 

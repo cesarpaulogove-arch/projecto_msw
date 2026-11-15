@@ -228,7 +228,6 @@ async function DetalhesEncomendaConteudo({
                 <th className="px-5 py-4">Produto</th>
                 <th className="px-5 py-4">Preço unitário</th>
                 <th className="px-5 py-4">Quantidade</th>
-                <th className="px-5 py-4">Subtotal</th>
               </tr>
             </thead>
 
@@ -247,9 +246,6 @@ async function DetalhesEncomendaConteudo({
                     {item.quantity}
                   </td>
 
-                  <td className="px-5 py-4 font-bold text-[#071B2D]">
-                    {formatarMoeda(Number(item.subtotal))}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -271,13 +267,6 @@ async function DetalhesEncomendaConteudo({
 
           <div className="space-y-4">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">
-                Subtotal
-              </span>
-
-              <span className="font-semibold text-gray-800">
-                {formatarMoeda(Number(encomenda.subtotal))}
-              </span>
             </div>
 
             <div className="flex justify-between text-sm">

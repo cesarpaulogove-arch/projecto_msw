@@ -12,19 +12,19 @@ import {
 
 interface ResumoCarrinhoProps {
   quantidadeTotal: number;
-  subtotal: number;
+  totalProdutos: number;
   custoEntrega?: number;
   carregando?: boolean;
 }
 
 export default function ResumoCarrinho({
   quantidadeTotal,
-  subtotal,
+  totalProdutos,
   custoEntrega,
   carregando = false,
 }: ResumoCarrinhoProps) {
   const entregaConfirmada = custoEntrega !== undefined;
-  const total = subtotal + (custoEntrega ?? 0);
+  const total = totalProdutos + (custoEntrega ?? 0);
   const bloqueado = quantidadeTotal === 0 || carregando;
 
   function formatarPreco(valor: number) {
@@ -50,9 +50,9 @@ export default function ResumoCarrinho({
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-        <span>Subtotal</span>
+        <span>Total dos produtos</span>
         <span className="font-semibold text-[#071B2D]">
-          {formatarPreco(subtotal)}
+          {formatarPreco(totalProdutos)}
         </span>
       </div>
 
@@ -71,8 +71,8 @@ export default function ResumoCarrinho({
 
       <div className="mt-6 border-t border-gray-200 pt-5">
         <div className="flex items-center justify-between">
-          <span className="text-base font-bold text-[#071B2D]">
-            {entregaConfirmada ? "Total" : "Subtotal"}
+          <span className="text-base font-bold text-[rgb(7,27,45)]">
+            {entregaConfirmada ? "Total" : "Total"}
           </span>
 
           <span className="text-2xl font-black text-cyan-700">

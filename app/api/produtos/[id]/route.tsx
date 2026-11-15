@@ -108,6 +108,94 @@ async function removerImagemSeNaoUtilizada(
   }
 }
 
+// ======================================================
+// GET — CONSULTAR PRODUTO E PRODUTOS RELACIONADOS
+// ======================================================
+
+export async function GET(
+  request: NextRequest,
+  { params }: RouteParams
+) {
+  try {
+    const { id } = await params;
+
+    if (!id?.trim()) {
+      return NextResponse.json(
+        { error: "Identificador do produto inválido." },
+        { status: 400 }
+      );
+    }
+
+    const identificador = decodeURIComponent(id).trim();
+
+    const produto = await prisma.product.findFirst({
+      where: {
+        active: true,
+        OR: [
+          { id: identificador },
+          { slug: identificador },
+        ],
+      },
+      include: {
+        category: true,
+      },
+    });
+
+    if (!produto) {
+      return NextResponse.json(
+        { error: "Produto não encontrado." },
+        { status: 404 }
+      );
+    }
+
+    const relacionados = await prisma.product.findMany({
+      where: {
+        active: true,
+        categoryId: produto.categoryId,
+        id: {
+          not: produto.id,
+        },
+      },
+      include: {
+        category: true,
+      },
+      orderBy: [
+        { featured: "desc" },
+        { createdAt: "desc" },
+      ],
+      take: 8,
+    });
+
+    return NextResponse.json(
+      {
+        produto,
+        relacionados,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Erro ao consultar detalhes do produto:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error: "Não foi possível consultar o produto.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// ======================================================
+// PATCH — ACTUALIZAR PRODUTO
+// ======================================================
+
 export async function PATCH(
   request: NextRequest,
   { params }: RouteParams
@@ -119,6 +207,7 @@ export async function PATCH(
     const { id } = await params;
 
     // 1. Procurar produto
+
     const produtoExistente = await prisma.product.findUnique({
       where: { id },
     });
@@ -133,7 +222,7 @@ export async function PATCH(
     const dados = await request.formData();
 
     // 2. Receber dados
-    // Se o formulário não enviar code, preservar o código actual.
+
     const code = dados.has("code")
       ? String(dados.get("code") ?? "").trim()
       : produtoExistente.code ?? "";
@@ -152,10 +241,6 @@ export async function PATCH(
       dados.get("oldPrice") || ""
     ).trim();
 
-    const ivaRateRaw = String(
-      dados.get("ivaRate") ?? produtoExistente.ivaRate
-    ).trim();
-
     const categoryId = String(
       dados.get("categoryId") || ""
     ).trim();
@@ -167,9 +252,8 @@ export async function PATCH(
     const promotion = dados.get("promotion") === "true";
 
     const price = Number(priceRaw);
-    const ivaRate = Number(ivaRateRaw);
-
     // 3. Validar nome
+
     if (!name) {
       return NextResponse.json(
         { error: "O nome do produto é obrigatório." },
@@ -178,6 +262,7 @@ export async function PATCH(
     }
 
     // 4. Validar categoria
+
     if (!categoryId) {
       return NextResponse.json(
         { error: "Seleccione uma categoria." },
@@ -186,6 +271,7 @@ export async function PATCH(
     }
 
     // 5. Validar preço
+
     if (
       !priceRaw ||
       !Number.isFinite(price) ||
@@ -197,28 +283,14 @@ export async function PATCH(
       );
     }
 
-    // 6. Validar IVA
-    if (
-      !ivaRateRaw ||
-      !Number.isFinite(ivaRate) ||
-      ivaRate < 0 ||
-      ivaRate > 100
-    ) {
-      return NextResponse.json(
-        {
-          error: "Introduza uma taxa de IVA válida entre 0% e 100%.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 7. Validar disponibilidade
     if (
       inStockRaw !== "true" &&
       inStockRaw !== "false"
     ) {
       return NextResponse.json(
-        { error: "Seleccione a disponibilidade do produto." },
+        {
+          error: "Seleccione a disponibilidade do produto.",
+        },
         { status: 400 }
       );
     }
@@ -226,6 +298,7 @@ export async function PATCH(
     const inStock = inStockRaw === "true";
 
     // 8. Validar preço anterior
+
     let oldPrice: number | null = null;
 
     if (oldPriceRaw !== "") {
@@ -246,6 +319,7 @@ export async function PATCH(
     }
 
     // 9. Validar categoria
+
     const categoria = await prisma.category.findFirst({
       where: {
         id: categoryId,
@@ -263,6 +337,7 @@ export async function PATCH(
     }
 
     // 10. Verificar código duplicado
+
     if (code) {
       const codigoExistente = await prisma.product.findFirst({
         where: {
@@ -275,7 +350,8 @@ export async function PATCH(
       if (codigoExistente) {
         return NextResponse.json(
           {
-            error: "Já existe outro produto com este código.",
+            error:
+              "Já existe outro produto com este código.",
           },
           { status: 409 }
         );
@@ -283,12 +359,14 @@ export async function PATCH(
     }
 
     // 11. Preparar imagens originais
+
     const imagensOriginais = new Set([
       produtoExistente.image,
       ...(produtoExistente.images || []),
     ]);
 
     // 12. Receber novas imagens
+
     const novasImagens = dados
       .getAll("newImages")
       .filter(
@@ -297,6 +375,7 @@ export async function PATCH(
       );
 
     // 13. Validar novos ficheiros
+
     for (const imagem of novasImagens) {
       if (imagem.size > MAX_FILE_SIZE) {
         return NextResponse.json(
@@ -310,7 +389,8 @@ export async function PATCH(
       if (!TIPOS_PERMITIDOS[imagem.type]) {
         return NextResponse.json(
           {
-            error: `O formato da imagem "${imagem.name}" não é permitido.`,
+            error:
+              `O formato da imagem "${imagem.name}" não é permitido.`,
           },
           { status: 400 }
         );
@@ -318,6 +398,7 @@ export async function PATCH(
     }
 
     // 14. Receber ordem completa da galeria
+
     const ordemRecebida = dados.get("imageOrder");
 
     if (typeof ordemRecebida !== "string") {
@@ -349,6 +430,7 @@ export async function PATCH(
     }
 
     // 15. Validar imagens da sequência
+
     for (const item of ordemImagens) {
       if (
         !item ||
@@ -385,7 +467,8 @@ export async function PATCH(
         ) {
           return NextResponse.json(
             {
-              error: "Uma nova imagem contém um índice inválido.",
+              error:
+                "Uma nova imagem contém um índice inválido.",
             },
             { status: 400 }
           );
@@ -401,6 +484,7 @@ export async function PATCH(
     }
 
     // 16. Impedir imagens duplicadas
+
     const indicesNovos = ordemImagens
       .filter((item) => item.type === "new")
       .map((item) => item.index);
@@ -422,6 +506,7 @@ export async function PATCH(
     }
 
     // 17. Validar quantidade de imagens
+
     if (
       indicesNovos.length !== novasImagens.length ||
       ordemImagens.length > MAX_IMAGES
@@ -446,6 +531,7 @@ export async function PATCH(
     }
 
     // 18. Validar imagem principal
+
     const mainImageIndex = Number(
       dados.get("mainImageIndex")
     );
@@ -464,6 +550,7 @@ export async function PATCH(
     }
 
     // 19. Guardar novas imagens
+
     const pastaUploads = path.join(
       process.cwd(),
       "public",
@@ -489,12 +576,13 @@ export async function PATCH(
         await imagem.arrayBuffer()
       );
 
-      novasImagensGuardadas.push(caminhoPublico);
-
       await writeFile(caminhoFisico, buffer);
+
+      novasImagensGuardadas.push(caminhoPublico);
     }
 
     // 20. Reconstruir galeria
+
     const galeria = ordemImagens.map((item) => {
       if (item.type === "existing") {
         return item.url!;
@@ -504,9 +592,11 @@ export async function PATCH(
     });
 
     // 21. Identificar imagem principal
+
     const mainImage = galeria[mainImageIndex];
 
     // 22. Colocar imagem principal na primeira posição
+
     const galeriaOrdenada = [
       mainImage,
       ...galeria.filter(
@@ -515,12 +605,14 @@ export async function PATCH(
     ];
 
     // 23. Gerar slug
+
     const slug =
       name === produtoExistente.name
         ? produtoExistente.slug
         : await gerarSlugUnico(name, id);
 
     // 24. Actualizar produto
+
     const produto = await prisma.product.update({
       where: { id },
       data: {
@@ -530,7 +622,6 @@ export async function PATCH(
         description: description || null,
         price,
         oldPrice,
-        ivaRate,
         inStock,
         categoryId,
         featured,
@@ -547,6 +638,7 @@ export async function PATCH(
     baseDadosActualizada = true;
 
     // 25. Limpar imagens antigas não utilizadas
+
     const imagensAnteriores = new Set([
       produtoExistente.image,
       ...(produtoExistente.images || []),
@@ -578,6 +670,8 @@ export async function PATCH(
   } catch (error) {
     console.error("Erro ao actualizar produto:", error);
 
+    // Limpar novas imagens se a actualização falhar
+
     if (!baseDadosActualizada) {
       await Promise.all(
         novasImagensGuardadas.map((imagem) => {
@@ -601,7 +695,8 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          error: "O código ou identificador deste produto já existe.",
+          error:
+            "O código ou identificador deste produto já existe.",
         },
         { status: 409 }
       );

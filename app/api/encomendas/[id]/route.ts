@@ -51,26 +51,32 @@ export async function GET(
       encomenda: {
         id: encomenda.id,
         referencia: encomenda.orderNumber,
+
         cliente: {
+          tipo: encomenda.customerType,
           nome: encomenda.customerName,
+          empresa: encomenda.company || null,
+          nuit: encomenda.nuit || null,
           telefone: encomenda.phone,
           email: encomenda.email,
           endereco: encomenda.address,
           distrito: encomenda.district,
         },
+
         observacoes: encomenda.notes,
-        subtotal: Number(encomenda.subtotal),
         taxaEntrega: Number(encomenda.deliveryFee),
         total: Number(encomenda.total),
         estado: encomenda.status,
+
         produtos: encomenda.items.map((item) => ({
           id: item.id,
           productId: item.productId,
           nome: item.productName,
           quantidade: item.quantity,
           precoUnitario: Number(item.unitPrice),
-          subtotal: Number(item.subtotal),
+          total: Number(item.total),
         })),
+
         dataCriacao: encomenda.createdAt,
         dataActualizacao: encomenda.updatedAt,
       },
@@ -168,16 +174,32 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       message: "Estado da encomenda actualizado com sucesso.",
+
       encomenda: {
         id: encomenda.id,
         referencia: encomenda.orderNumber,
+
+        cliente: {
+          tipo: encomenda.customerType,
+          nome: encomenda.customerName,
+          empresa: encomenda.company || null,
+          nuit: encomenda.nuit || null,
+          telefone: encomenda.phone,
+          email: encomenda.email,
+          endereco: encomenda.address,
+          distrito: encomenda.district,
+        },
+
         estado: encomenda.status,
         total: Number(encomenda.total),
+
         produtos: encomenda.items.map((item) => ({
           nome: item.productName,
           quantidade: item.quantity,
-          subtotal: Number(item.subtotal),
+          precoUnitario: Number(item.unitPrice),
+          total: Number(item.total),
         })),
+
         dataActualizacao: encomenda.updatedAt,
       },
     });

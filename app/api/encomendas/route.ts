@@ -5,13 +5,18 @@ import { Prisma } from "@/generated/prisma/client";
 import { randomBytes } from "node:crypto";
 import { enviarNotificacaoEmail } from "@/lib/notificacoes-email";
 
+type CustomerType = "INDIVIDUAL" | "COMPANY";
+
 interface EncomendaItem {
   productId: string;
   quantity: number;
 }
 
 interface EncomendaBody {
+  customerType?: CustomerType;
   customerName: string;
+  company?: string;
+  nuit?: string;
   phone: string;
   email?: string;
   address: string;
@@ -63,7 +68,10 @@ export async function GET(request: NextRequest) {
         createdAt: "desc",
       },
       select: {
+        customerType: true,
         customerName: true,
+        company: true,
+        nuit: true,
         phone: true,
         email: true,
         address: true,
@@ -82,7 +90,10 @@ export async function GET(request: NextRequest) {
       success: true,
       encontrado: true,
       cliente: {
+        customerType: cliente.customerType,
         nome: cliente.customerName,
+        empresa: cliente.company || "",
+        nuit: cliente.nuit || "",
         telefone: cliente.phone,
         email: cliente.email || "",
         endereco: cliente.address,
@@ -109,18 +120,33 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as EncomendaBody;
 
-    // 1. Validar dados do cliente
+    // 1. Validar tipo e dados do cliente
+    const customerType = body.customerType || "INDIVIDUAL";
+
+    if (
+      customerType !== "INDIVIDUAL" &&
+      customerType !== "COMPANY"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Tipo de cliente inválido.",
+        },
+        { status: 400 }
+      );
+    }
+
     const nome = body.customerName?.trim() || "";
+    const empresa = body.company?.trim() || "";
+    const nuit = body.nuit?.replace(/\D/g, "") || "";
+
     const telefoneOriginal = body.phone?.trim() || "";
     const telefone = normalizarTelefone(telefoneOriginal);
+
     const endereco = body.address?.trim() || "";
     const email = body.email?.trim() || "";
 
-    if (
-      !nome ||
-      telefone.length < 9 ||
-      !endereco
-    ) {
+    if (!nome || telefone.length < 9 || !endereco) {
       return NextResponse.json(
         {
           success: false,
@@ -128,6 +154,28 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    if (customerType === "COMPANY") {
+      if (!empresa) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Introduza o nome da empresa.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!/^\d{9}$/.test(nuit)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "O NUIT deve conter exactamente 9 dígitos.",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     if (
@@ -142,6 +190,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Para pessoas individuais, não guardar dados de empresa.
+    const company = customerType === "COMPANY" ? empresa : null;
+    const nuitFinal = customerType === "COMPANY" ? nuit : null;
 
     // 2. Validar produtos
     if (!Array.isArray(body.items) || body.items.length === 0) {
@@ -227,40 +279,46 @@ export async function POST(request: NextRequest) {
           }
 
           const unitPrice = new Prisma.Decimal(produto.price);
-          const subtotal = unitPrice.mul(quantity);
+          const total = unitPrice.mul(quantity);
 
           return {
             productId: produto.id,
             productName: produto.name,
             quantity,
             unitPrice,
-            subtotal,
+            total,
           };
         });
 
-        // 5. Calcular valores
-        const subtotal = linhas.reduce(
-          (total, item) => total.add(item.subtotal),
+        // 5. Calcular o total dos produtos
+        const totalProdutos = linhas.reduce(
+          (soma, item) => soma.add(item.total),
           new Prisma.Decimal(0)
         );
 
         // A entrega será confirmada posteriormente.
         const deliveryFee = new Prisma.Decimal(0);
-        const total = subtotal.add(deliveryFee);
+        const total = totalProdutos.add(deliveryFee);
 
         // 6. Registar encomenda e produtos
         const novaEncomenda = await tx.order.create({
           data: {
             orderNumber: gerarReferencia(),
+
+            customerType,
             customerName: nome,
+            company,
+            nuit: nuitFinal,
+
             phone: telefone,
             email: email || null,
             address: endereco,
             district: body.district?.trim() || null,
             notes: body.notes?.trim() || null,
-            subtotal,
+
             deliveryFee,
             total,
+
             items: {
               create: linhas,
             },
@@ -281,7 +339,6 @@ export async function POST(request: NextRequest) {
     );
 
     // 7. Enviar notificação depois de a encomenda ser registada.
-    // Uma falha no e-mail não deve invalidar a encomenda.
     try {
       const emailEnviado = await enviarNotificacaoEmail({
         tipo: "NOVA ENCOMENDA",
@@ -289,6 +346,25 @@ export async function POST(request: NextRequest) {
         cliente: encomenda.customerName,
 
         campos: [
+          {
+            nome: "Tipo de cliente",
+            valor:
+              encomenda.customerType === "COMPANY"
+                ? "Empresa"
+                : "Pessoa individual",
+          },
+          ...(encomenda.customerType === "COMPANY"
+            ? [
+                {
+                  nome: "Empresa",
+                  valor: encomenda.company || "Não indicado",
+                },
+                {
+                  nome: "NUIT",
+                  valor: encomenda.nuit || "Não indicado",
+                },
+              ]
+            : []),
           {
             nome: "Telefone",
             valor: encomenda.phone,
@@ -310,10 +386,6 @@ export async function POST(request: NextRequest) {
             valor: encomenda.notes || "Nenhuma",
           },
           {
-            nome: "Subtotal",
-            valor: `${encomenda.subtotal.toString()} MZN`,
-          },
-          {
             nome: "Entrega",
             valor: `${encomenda.deliveryFee.toString()} MZN`,
           },
@@ -327,8 +399,7 @@ export async function POST(request: NextRequest) {
           nome: item.productName,
           quantidade: item.quantity,
           preco: `${item.unitPrice.toString()} MZN`,
-          subtotal: `${item.subtotal.toString()} MZN`,
-          total: `${item.subtotal.toString()} MZN`,
+          total: `${item.total.toString()} MZN`,
         })),
       });
 
@@ -351,17 +422,31 @@ export async function POST(request: NextRequest) {
         orderNumber: encomenda.orderNumber,
         total: Number(encomenda.total),
 
-        encomenda: {
+       encomenda: {
           id: encomenda.id,
           referencia: encomenda.orderNumber,
+
+          customerType: encomenda.customerType,
           cliente: encomenda.customerName,
+          empresa: encomenda.company,
+          nuit: encomenda.nuit,
+
+          telefone: encomenda.phone,
+          email: encomenda.email,
+          endereco: encomenda.address,
+          distrito: encomenda.district,
+          observacoes: encomenda.notes,
+
+          entrega: Number(encomenda.deliveryFee),
+          total: Number(encomenda.total),
+
           estado: encomenda.status,
 
           produtos: encomenda.items.map((item) => ({
             nome: item.productName,
             quantidade: item.quantity,
             preco: Number(item.unitPrice),
-            subtotal: Number(item.subtotal),
+            total: Number(item.total),
           })),
 
           data: encomenda.createdAt,

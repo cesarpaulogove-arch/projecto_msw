@@ -76,20 +76,32 @@ export async function GET() {
         },
       }
     );
-  } catch (error) {
-    console.error("ERRO API CATEGORIAS MENU:", error);
+ } catch (error) {
+  console.error(
+    "ERRO API CATEGORIAS MENU:",
+    error instanceof Error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        }
+      : error
+  );
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Erro interno ao carregar categorias.",
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Erro interno ao carregar categorias.",
+    },
+    {
+      status: 500,
+      headers: {
+        "Cache-Control": "no-store",
       },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
-    );
-  }
+    }
+  );
+}
 }

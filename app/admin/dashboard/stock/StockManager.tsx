@@ -10,6 +10,8 @@ import {
   Loader2,
   Package,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface Produto {
@@ -26,7 +28,11 @@ interface StockManagerProps {
   produtos: Produto[];
 }
 
-type Filtro = "TODOS" | "DISPONIVEIS" | "INDISPONIVEIS";
+type Filtro =
+  | "TODOS"
+  | "DISPONIVEIS"
+  | "INDISPONIVEIS"
+  | "OCULTOS";
 
 export default function StockManager({
   produtos: produtosIniciais,
@@ -46,16 +52,18 @@ export default function StockManager({
       const correspondeFiltro =
         filtro === "TODOS" ||
         (filtro === "DISPONIVEIS" && produto.inStock) ||
-        (filtro === "INDISPONIVEIS" && !produto.inStock);
+        (filtro === "INDISPONIVEIS" && !produto.inStock) ||
+        (filtro === "OCULTOS" && !produto.active);
 
       return correspondePesquisa && correspondeFiltro;
     });
   }, [produtos, pesquisa, filtro]);
 
-  async function alterarDisponibilidade(produto: Produto) {
+  async function atualizarProduto(
+    produto: Produto,
+    alteracoes: { inStock?: boolean; active?: boolean }
+  ) {
     if (atualizando) return;
-
-    const novoEstado = !produto.inStock;
 
     setErro("");
     setAtualizando(produto.id);
@@ -66,23 +74,27 @@ export default function StockManager({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          inStock: novoEstado,
-        }),
+        body: JSON.stringify(alteracoes),
       });
 
       const dados = await resposta.json();
 
       if (!resposta.ok) {
         throw new Error(
-          dados.error || "Não foi possível atualizar a disponibilidade."
+          dados.error || "Não foi possível actualizar o produto."
         );
       }
 
       setProdutos((atuais) =>
         atuais.map((item) =>
           item.id === produto.id
-            ? { ...item, inStock: dados.produto.inStock }
+            ? {
+                ...item,
+                inStock:
+                  dados.produto.inStock ?? item.inStock,
+                active:
+                  dados.produto.active ?? item.active,
+              }
             : item
         )
       );
@@ -90,7 +102,7 @@ export default function StockManager({
       setErro(
         error instanceof Error
           ? error.message
-          : "Ocorreu um erro ao atualizar o produto."
+          : "Ocorreu um erro ao actualizar o produto."
       );
     } finally {
       setAtualizando(null);
@@ -104,6 +116,13 @@ export default function StockManager({
       minimumFractionDigits: 2,
     }).format(preco);
   }
+
+  const filtros: [Filtro, string][] = [
+    ["TODOS", "Todos"],
+    ["DISPONIVEIS", "Disponíveis"],
+    ["INDISPONIVEIS", "Indisponíveis"],
+    ["OCULTOS", "Ocultos"],
+  ];
 
   return (
     <div className="space-y-5">
@@ -126,13 +145,7 @@ export default function StockManager({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ["TODOS", "Todos"],
-                ["DISPONIVEIS", "Disponíveis"],
-                ["INDISPONIVEIS", "Indisponíveis"],
-              ] as [Filtro, string][]
-            ).map(([valor, texto]) => (
+            {filtros.map(([valor, texto]) => (
               <button
                 key={valor}
                 type="button"
@@ -225,55 +238,100 @@ export default function StockManager({
                       <p className="mt-1 text-sm font-semibold text-gray-700">
                         {formatarPreco(produto.price)}
                       </p>
-
-                      <p className="mt-1 text-xs text-gray-400">
-                        {produto.active ? "Publicado" : "Inactivo"}
-                      </p>
                     </div>
                   </div>
 
-                  {/* Estado e botão */}
-                  <div className="flex items-center justify-between gap-4 sm:justify-end">
-                    <div
-                      className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
-                        produto.inStock
-                          ? "bg-green-50 text-green-700"
-                          : "bg-red-50 text-red-700"
-                      }`}
-                    >
-                      {produto.inStock ? (
-                        <CheckCircle2 size={15} />
-                      ) : (
-                        <XCircle size={15} />
-                      )}
+                  {/* Estados e acções */}
+                  <div className="flex flex-col gap-3 sm:items-end">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
+                          produto.inStock
+                            ? "bg-green-50 text-green-700"
+                            : "bg-red-50 text-red-700"
+                        }`}
+                      >
+                        {produto.inStock ? (
+                          <CheckCircle2 size={15} />
+                        ) : (
+                          <XCircle size={15} />
+                        )}
 
-                      {produto.inStock ? "Disponível" : "Indisponível"}
+                        {produto.inStock
+                          ? "Disponível"
+                          : "Indisponível"}
+                      </span>
+
+                      <span
+                        className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
+                          produto.active
+                            ? "bg-blue-50 text-blue-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {produto.active ? (
+                          <Eye size={15} />
+                        ) : (
+                          <EyeOff size={15} />
+                        )}
+
+                        {produto.active ? "Publicado" : "Oculto"}
+                      </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => alterarDisponibilidade(produto)}
-                      disabled={atualizando !== null}
-                      className={`flex min-w-[145px] items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        produto.inStock
-                          ? "border border-red-200 bg-white text-red-600 hover:bg-red-50"
-                          : "bg-lime-500 text-gray-950 hover:bg-lime-400"
-                      }`}
-                    >
-                      {estaAtualizando ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          A guardar...
-                        </>
-                      ) : (
-                        <>
+                    <div className="flex flex-wrap gap-2">
+                      {/* Disponibilidade */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          atualizarProduto(produto, {
+                            inStock: !produto.inStock,
+                          })
+                        }
+                        disabled={atualizando !== null}
+                        className={`flex min-w-[145px] items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                          produto.inStock
+                            ? "border border-red-200 bg-white text-red-600 hover:bg-red-50"
+                            : "bg-lime-500 text-gray-950 hover:bg-lime-400"
+                        }`}
+                      >
+                        {estaAtualizando ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
                           <RefreshCw size={15} />
-                          {produto.inStock
-                            ? "Indisponibilizar"
-                            : "Disponibilizar"}
-                        </>
-                      )}
-                    </button>
+                        )}
+
+                        {produto.inStock
+                          ? "Indisponibilizar"
+                          : "Disponibilizar"}
+                      </button>
+
+                      {/* Visibilidade */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          atualizarProduto(produto, {
+                            active: !produto.active,
+                          })
+                        }
+                        disabled={atualizando !== null}
+                        className={`flex min-w-[125px] items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                          produto.active
+                            ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                            : "bg-blue-600 text-white hover:bg-blue-700"
+                        }`}
+                      >
+                        {estaAtualizando ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : produto.active ? (
+                          <EyeOff size={15} />
+                        ) : (
+                          <Eye size={15} />
+                        )}
+
+                        {produto.active ? "Ocultar" : "Mostrar"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

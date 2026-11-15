@@ -19,7 +19,7 @@ export default function CartItem({
 }: CartItemProps) {
   const { produto, quantidade } = item;
 
-  const subtotal = produto.price * quantidade;
+  const total = produto.price * quantidade;
   const disponivel = produto.inStock;
 
   const formatarPreco = (valor: number) =>
@@ -120,9 +120,9 @@ export default function CartItem({
 
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="text-xs text-gray-500">Subtotal</p>
+            <p className="text-xs text-gray-500">Total</p>
             <p className="font-black text-[#071B2D]">
-              {formatarPreco(subtotal)}
+              {formatarPreco(total)}
             </p>
           </div>
 

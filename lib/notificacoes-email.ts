@@ -10,8 +10,6 @@ interface ItemNotificacao {
   nome: string;
   quantidade: number;
   preco?: string | number;
-  subtotal?: string | number;
-  iva?: string | number;
   total?: string | number;
 }
 
@@ -41,21 +39,25 @@ export async function enviarNotificacaoEmail(
   const password = process.env.EMAIL_SMTP_PASSWORD;
 
   const host = process.env.EMAIL_SMTP_HOST || "smtp.gmail.com";
-const porta = Number(process.env.EMAIL_SMTP_PORT || 587);
+  const porta = Number(process.env.EMAIL_SMTP_PORT || 587);
 
-if (
-  !remetente ||
-  !destinatario ||
-  !utilizador ||
-  !password ||
-  ![465, 587].includes(porta)
-) {
-  console.error(
-    "NOTIFICAÇÃO EMAIL: Configuração SMTP incompleta ou inválida."
-  );
+  // 1. Validar configuração SMTP
+  if (
+    !remetente ||
+    !destinatario ||
+    !utilizador ||
+    !password ||
+    !host ||
+    ![465, 587].includes(porta)
+  ) {
+    console.error(
+      "NOTIFICAÇÃO EMAIL: Configuração SMTP incompleta ou inválida."
+    );
 
-  return false;
-}
+    return false;
+  }
+
+  // 2. Configurar transportador
   const transporter = nodemailer.createTransport({
     host,
     port: porta,
@@ -72,13 +74,15 @@ if (
     socketTimeout: 15000,
   });
 
+  // 3. Preparar campos do pedido
   const camposHTML = dados.campos
     .map(
       (campo) => `
         <tr>
-          <td style="padding:10px;border-bottom:1px solid #eee;color:#555;">
+          <td style="padding:10px;border-bottom:1px solid #eee;color:#555;width:40%;">
             ${escaparHTML(campo.nome)}
           </td>
+
           <td style="padding:10px;border-bottom:1px solid #eee;font-weight:600;">
             ${escaparHTML(campo.valor)}
           </td>
@@ -87,6 +91,7 @@ if (
     )
     .join("");
 
+  // 4. Preparar produtos
   const itensHTML = dados.itens
     .map(
       (item) => `
@@ -104,14 +109,6 @@ if (
           </td>
 
           <td style="padding:10px;text-align:right;border-bottom:1px solid #eee;">
-            ${escaparHTML(item.subtotal ?? "-")}
-          </td>
-
-          <td style="padding:10px;text-align:right;border-bottom:1px solid #eee;">
-            ${escaparHTML(item.iva ?? "-")}
-          </td>
-
-          <td style="padding:10px;text-align:right;border-bottom:1px solid #eee;">
             ${escaparHTML(item.total ?? "-")}
           </td>
         </tr>
@@ -119,6 +116,7 @@ if (
     )
     .join("");
 
+  // 5. Preparar versão de texto simples
   const textoCampos = dados.campos
     .map(
       (campo) => `${campo.nome}: ${campo.valor}`
@@ -128,77 +126,100 @@ if (
   const textoItens = dados.itens
     .map(
       (item) =>
-        `${item.nome} | Quantidade: ${item.quantidade} | Preço: ${item.preco ?? "-"} | Subtotal: ${item.subtotal ?? "-"} | IVA: ${item.iva ?? "-"} | Total: ${item.total ?? "-"}`
+        `${item.nome} | Quantidade: ${item.quantidade} | Preço: ${item.preco ?? "-"} | Total: ${item.total ?? "-"}`
     )
     .join("\n");
 
+  // 6. Construir HTML do email
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:750px;margin:auto;color:#222;">
+    <!DOCTYPE html>
+    <html lang="pt">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${escaparHTML(dados.tipo)}</title>
+      </head>
 
-      <div style="background:#10251b;padding:25px;color:white;">
-        <h2 style="margin:0;color:#d7ef4d;">MSW BUSINESS</h2>
-        <p style="margin-bottom:0;">
-          Notificação de actividade comercial
-        </p>
-      </div>
+      <body style="margin:0;padding:20px;background:#f5f5f5;font-family:Arial,sans-serif;color:#222;">
 
-      <div style="padding:25px;border:1px solid #eee;">
+        <div style="max-width:750px;margin:auto;background:#ffffff;">
 
-        <h2>${escaparHTML(dados.tipo)}</h2>
+          <div style="background:#10251b;padding:25px;color:white;">
+            <h2 style="margin:0;color:#d7ef4d;">
+              MSW BUSINESS
+            </h2>
 
-        <p>
-          Foi registado um novo pedido na plataforma MSW BUSINESS.
-        </p>
+            <p style="margin-bottom:0;color:#ffffff;">
+              Notificação de actividade comercial
+            </p>
+          </div>
 
-        <p>
-          <strong>Referência:</strong>
-          ${escaparHTML(dados.referencia)}
-        </p>
+          <div style="padding:25px;border:1px solid #eee;">
 
-        <p>
-          <strong>Cliente:</strong>
-          ${escaparHTML(dados.cliente)}
-        </p>
+            <h2 style="margin-top:0;">
+              ${escaparHTML(dados.tipo)}
+            </h2>
 
-        <h3>Dados do pedido</h3>
+            <p>
+              Foi registado um novo pedido na plataforma MSW BUSINESS.
+            </p>
 
-        <table style="width:100%;border-collapse:collapse;">
-          ${camposHTML}
-        </table>
+            <p>
+              <strong>Referência:</strong>
+              ${escaparHTML(dados.referencia)}
+            </p>
 
-        <h3 style="margin-top:25px;">
-          Produtos solicitados
-        </h3>
+            <p>
+              <strong>Cliente:</strong>
+              ${escaparHTML(dados.cliente)}
+            </p>
 
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <h3>Dados do pedido</h3>
 
-          <thead>
-            <tr style="background:#f2f5ed;">
-              <th style="padding:10px;text-align:left;">Produto</th>
-              <th style="padding:10px;">Qtd.</th>
-              <th style="padding:10px;text-align:right;">Preço</th>
-              <th style="padding:10px;text-align:right;">Subtotal</th>
-              <th style="padding:10px;text-align:right;">IVA</th>
-              <th style="padding:10px;text-align:right;">Total</th>
-            </tr>
-          </thead>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+              <tbody>
+                ${camposHTML}
+              </tbody>
+            </table>
 
-          <tbody>
-            ${itensHTML}
-          </tbody>
+            <h3 style="margin-top:25px;">
+              Produtos solicitados
+            </h3>
 
-        </table>
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;">
 
-        <p style="margin-top:30px;color:#777;font-size:12px;">
-          Esta é uma notificação automática da plataforma MSW BUSINESS.
-        </p>
+                <thead>
+                  <tr style="background:#f2f5ed;">
+                    <th style="padding:10px;text-align:left;">Produto</th>
+                    <th style="padding:10px;">Qtd.</th>
+                    <th style="padding:10px;text-align:right;">Preço unitário</th>
+                    <th style="padding:10px;text-align:right;">Total</th>
+                  </tr>
+                </thead>
 
-      </div>
-    </div>
+                <tbody>
+                  ${itensHTML}
+                </tbody>
+
+              </table>
+            </div>
+
+            <p style="margin-top:30px;color:#777;font-size:12px;">
+              Esta é uma notificação automática da plataforma MSW BUSINESS.
+              Por favor, não responda directamente a este email.
+            </p>
+
+          </div>
+        </div>
+
+      </body>
+    </html>
   `;
 
+  // 7. Construir versão de texto simples
   const texto = `
-MSW BUSINESS- ${dados.tipo}
+MSW BUSINESS - ${dados.tipo}
 
 Referência: ${dados.referencia}
 Cliente: ${dados.cliente}
@@ -208,8 +229,11 @@ ${textoCampos}
 
 PRODUTOS
 ${textoItens}
-  `;
 
+Esta é uma notificação automática da plataforma MSW BUSINESS.
+  `.trim();
+
+  // 8. Enviar email
   try {
     const resultado = await transporter.sendMail({
       from: {
@@ -225,7 +249,7 @@ ${textoItens}
       text: texto,
     });
 
-    if (!resultado.accepted.length) {
+    if (!resultado.accepted?.length) {
       console.error(
         "NOTIFICAÇÃO EMAIL: Nenhum destinatário aceitou o email.",
         resultado.rejected
@@ -239,7 +263,6 @@ ${textoItens}
     );
 
     return true;
-
   } catch (error) {
     console.error(
       "ERRO AO ENVIAR NOTIFICAÇÃO SMTP:",

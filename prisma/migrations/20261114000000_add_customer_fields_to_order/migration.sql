@@ -1,0 +1,33 @@
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type
+    WHERE typname = 'CustomerType'
+  ) THEN
+    CREATE TYPE "CustomerType" AS ENUM (
+      'INDIVIDUAL',
+      'COMPANY'
+    );
+  END IF;
+END
+$$;
+
+ALTER TYPE "CustomerType"
+ADD VALUE IF NOT EXISTS 'INDIVIDUAL';
+
+ALTER TYPE "CustomerType"
+ADD VALUE IF NOT EXISTS 'COMPANY';
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "customerType"
+"CustomerType" NOT NULL DEFAULT 'INDIVIDUAL';
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "company" TEXT;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "nuit" TEXT;
+
+CREATE INDEX IF NOT EXISTS "Order_nuit_idx"
+ON "Order" ("nuit");

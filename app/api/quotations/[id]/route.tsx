@@ -19,7 +19,9 @@ const estadosPermitidos = [
 type QuotationStatus =
   (typeof estadosPermitidos)[number];
 
-function textoOpcional(valor: unknown): string | null | undefined {
+function textoOpcional(
+  valor: unknown
+): string | null | undefined {
   if (valor === undefined) return undefined;
   if (valor === null) return null;
 
@@ -91,6 +93,13 @@ export async function PATCH(
   try {
     const { id } = await params;
 
+    if (!id) {
+      return NextResponse.json(
+        { error: "Identificador da cotação não informado." },
+        { status: 400 }
+      );
+    }
+
     const cotacaoExistente =
       await prisma.quotation.findUnique({
         where: { id },
@@ -114,6 +123,17 @@ export async function PATCH(
       );
     }
 
+    if (
+      !dados ||
+      typeof dados !== "object" ||
+      Array.isArray(dados)
+    ) {
+      return NextResponse.json(
+        { error: "Dados enviados inválidos." },
+        { status: 400 }
+      );
+    }
+
     const data: {
       customerName?: string;
       company?: string | null;
@@ -121,7 +141,6 @@ export async function PATCH(
       email?: string | null;
       address?: string | null;
       notes?: string | null;
-      validUntil?: Date | null;
       status?: QuotationStatus;
     } = {};
 
@@ -225,34 +244,15 @@ export async function PATCH(
       data.notes = notes;
     }
 
-    // Validade
+    // Validade automática:
+    // Não permitir que o cliente ou a edição alterem validUntil.
     if (dados.validUntil !== undefined) {
-      if (dados.validUntil === null || dados.validUntil === "") {
-        data.validUntil = null;
-      } else {
-        if (typeof dados.validUntil !== "string") {
-          return NextResponse.json(
-            { error: "Data de validade inválida." },
-            { status: 400 }
-          );
-        }
-
-        const validade = new Date(dados.validUntil);
-
-        if (
-          Number.isNaN(validade.getTime()) ||
-          validade.getTime() <= Date.now()
-        ) {
-          return NextResponse.json(
-            {
-              error: "A validade deve corresponder a uma data futura.",
-            },
-            { status: 400 }
-          );
-        }
-
-        data.validUntil = validade;
-      }
+      return NextResponse.json(
+        {
+          error: "A validade da cotação é automática e corresponde a 5 dias após a emissão.",
+        },
+        { status: 400 }
+      );
     }
 
     // Estado
@@ -330,9 +330,7 @@ export async function DELETE(
       );
     }
 
-    if (
-      cotacao.status === "ACEITE"
-    ) {
+    if (cotacao.status === "ACEITE") {
       return NextResponse.json(
         {
           error:

@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
-  // Ler os parâmetros antes do try/catch
   const url = new URL(request.url);
   const phone = url.searchParams.get("phone")?.trim();
 
@@ -24,18 +23,38 @@ export async function GET(request: NextRequest) {
       where: { phone },
       orderBy: { createdAt: "desc" },
       select: {
+        customerType: true,
         customerName: true,
         company: true,
+        nuit: true,
         phone: true,
         email: true,
         address: true,
       },
     });
 
+    if (!cotacao) {
+      return NextResponse.json(
+        { found: false, customer: null },
+        {
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+          },
+        }
+      );
+    }
+
     return NextResponse.json(
-      cotacao
-        ? { found: true, customer: cotacao }
-        : { found: false, customer: null },
+      {
+        found: true,
+        customer: {
+          ...cotacao,
+          // Compatibilidade com registos antigos
+          customerType:
+            cotacao.customerType ??
+            (cotacao.company ? "COMPANY" : "INDIVIDUAL"),
+        },
+      },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0",
@@ -47,7 +66,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Não foi possível verificar o contacto." },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
     );
   }
 }

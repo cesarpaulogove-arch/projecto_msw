@@ -1,12 +1,16 @@
+
 "use client";
 
 import Image from "next/image";
-import { useRef } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
 import {
-  ShoppingCart,
   Check,
   ChevronLeft,
   ChevronRight,
+  Plus,
+  Minus,
 } from "lucide-react";
 
 import {
@@ -23,26 +27,61 @@ export default function ProductCard({
   product,
   onAdd,
 }: ProductCardProps) {
-  const { adicionar, itens } = useCarrinho();
+  const {
+    adicionar,
+    remover,
+    atualizarQuantidade,
+    itens,
+  } = useCarrinho();
 
-  const galeriaRef = useRef<HTMLDivElement>(null);
+  // ======================================================
+  // GALERIA DE IMAGENS
+  // ======================================================
 
   const galeria =
     Array.isArray(product.images) && product.images.length > 0
-      ? product.images
+      ? [
+          ...new Set(
+            product.images.filter(
+              (imagem) =>
+                typeof imagem === "string" &&
+                imagem.trim().length > 0
+            )
+          ),
+        ]
       : product.image
         ? [product.image]
         : [];
 
+  const [imagemAtual, setImagemAtual] = useState(0);
+
+  useEffect(() => {
+    setImagemAtual(0);
+  }, [product.id]);
+
+  // ======================================================
+  // PREÇOS
+  // ======================================================
+
   const preco = Number(product.price ?? 0);
   const precoAnterior = Number(product.oldPrice ?? 0);
-
-  const disponivel = product.inStock === true;
 
   const temPrecoAnterior =
     product.oldPrice !== null &&
     product.oldPrice !== undefined &&
     precoAnterior > preco;
+
+  const formatarPreco = (valor: number) =>
+    valor.toLocaleString("pt-MZ", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  // ======================================================
+  // DISPONIBILIDADE E CARRINHO
+  // ======================================================
+
+  const disponivel = product.inStock === true;
 
   const itemNoCarrinho = itens.find(
     (item) => item.produto.id === product.id
@@ -51,11 +90,9 @@ export default function ProductCard({
   const quantidadeNoCarrinho =
     itemNoCarrinho?.quantidade ?? 0;
 
-  const formatarPreco = (valor: number) =>
-    valor.toLocaleString("pt-MZ", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  // ======================================================
+  // FUNÇÕES DO CARRINHO
+  // ======================================================
 
   const adicionarProduto = () => {
     if (!disponivel) return;
@@ -68,145 +105,357 @@ export default function ProductCard({
     adicionar(product);
   };
 
-  const deslocarGaleria = (
-    direcao: "esquerda" | "direita"
-  ) => {
-    const elemento = galeriaRef.current;
+  const aumentarQuantidade = () => {
+    if (!disponivel) return;
 
-    if (!elemento) return;
-
-    elemento.scrollBy({
-      left:
-        direcao === "direita"
-          ? elemento.clientWidth
-          : -elemento.clientWidth,
-      behavior: "smooth",
-    });
+    adicionar(product);
   };
 
+  const diminuirQuantidade = () => {
+    if (quantidadeNoCarrinho <= 0) return;
+
+    if (quantidadeNoCarrinho === 1) {
+      remover(product.id);
+      return;
+    }
+
+    atualizarQuantidade(
+      product.id,
+      quantidadeNoCarrinho - 1
+    );
+  };
+
+  // ======================================================
+  // NAVEGAÇÃO DA GALERIA
+  // ======================================================
+
+  const imagemAnterior = () => {
+    setImagemAtual((atual) =>
+      atual === 0 ? galeria.length - 1 : atual - 1
+    );
+  };
+
+  const imagemSeguinte = () => {
+    setImagemAtual((atual) =>
+      atual === galeria.length - 1 ? 0 : atual + 1
+    );
+  };
+
+  const linkProduto =
+    `/produtos/${encodeURIComponent(product.id)}`;
+
+  // ======================================================
+  // RENDERIZAÇÃO
+  // ======================================================
+
   return (
-    <article className="group flex h-[300px] w-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl">
+    <article
+      className="
+        group flex h-[300px] min-w-0 w-full flex-col
+        overflow-hidden rounded-xl
+        border border-gray-200 bg-white
+        transition duration-300
+        hover:-translate-y-1 hover:shadow-lg
+        sm:h-[310px]
+        lg:h-[290px]
+      "
+    >
 
-      {/* GALERIA DE IMAGENS */}
-      <div className="relative h-[144px] min-h-[144px] shrink-0 overflow-hidden bg-gray-100">
+      {/* ==================================================
+          IMAGEM PRINCIPAL DO PRODUTO
+      ================================================== */}
 
+      <div
+        className="
+          relative h-[155px] min-h-[155px] shrink-0
+          overflow-hidden bg-white
+          sm:h-[165px] sm:min-h-[165px]
+          lg:h-[155px] lg:min-h-[155px]
+        "
+      >
         {galeria.length > 0 ? (
           <>
-            <div
-              ref={galeriaRef}
-              className="flex h-full w-full snap-x snap-mandatory overflow-x-auto scroll-smooth"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
+            <Link
+              href={linkProduto}
+              aria-label={`Ver detalhes de ${product.name}`}
+              className="absolute inset-0"
             >
-              {galeria.map((imagem, index) => (
-                <div
-                  key={`${imagem}-${index}`}
-                  className="relative h-full min-w-full shrink-0 snap-center"
-                >
-                  <Image
-                    src={imagem}
-                    alt={`${product.name} - imagem ${index + 1}`}
-                    fill
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                    className="object-cover"
-                  />
-                </div>
-              ))}
-            </div>
+              <Image
+                key={galeria[imagemAtual]}
+                src={galeria[imagemAtual]}
+                alt={product.name}
+                fill
+                sizes="
+                  (max-width: 639px) 33vw,
+                  (max-width: 1023px) 33vw,
+                  20vw
+                "
+                quality={85}
+                className="
+                  object-contain p-1
+                  transition-transform duration-300
+                  group-hover:scale-105
+                "
+              />
+            </Link>
 
-            {/* CONTROLOS DA GALERIA */}
+            {/* SETA ANTERIOR */}
             {galeria.length > 1 && (
               <>
                 <button
                   type="button"
-                  onClick={() => deslocarGaleria("esquerda")}
+                  onClick={imagemAnterior}
                   aria-label="Imagem anterior"
-                  className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-1.5 text-gray-800 shadow transition hover:bg-lime-400"
+                  className="
+                    absolute left-1 top-1/2 z-10
+                    flex -translate-y-1/2
+                    items-center justify-center
+                    rounded-full bg-white/90
+                    p-1 text-gray-800 shadow
+                    transition hover:bg-lime-400
+                    sm:p-1.5
+                  "
                 >
                   <ChevronLeft size={17} />
                 </button>
 
+                {/* SETA SEGUINTE */}
                 <button
                   type="button"
-                  onClick={() => deslocarGaleria("direita")}
+                  onClick={imagemSeguinte}
                   aria-label="Imagem seguinte"
-                  className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-1.5 text-gray-800 shadow transition hover:bg-lime-400"
+                  className="
+                    absolute right-1 top-1/2 z-10
+                    flex -translate-y-1/2
+                    items-center justify-center
+                    rounded-full bg-white/90
+                    p-1 text-gray-800 shadow
+                    transition hover:bg-lime-400
+                    sm:p-1.5
+                  "
                 >
                   <ChevronRight size={17} />
                 </button>
-
-                <span className="absolute bottom-2 right-2 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white">
-                  {galeria.length} imagens
-                </span>
               </>
             )}
           </>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-gray-400">
+          <Link
+            href={linkProduto}
+            className="
+              flex h-full items-center justify-center
+              px-2 text-center text-xs text-gray-400
+            "
+          >
             Sem imagem disponível
-          </div>
+          </Link>
         )}
 
         {/* PROMOÇÃO */}
         {product.promotion && (
-          <span className="absolute left-2 top-2 z-20 rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-bold text-white">
+          <span
+            className="
+              absolute left-1 top-1 z-20
+              rounded-full bg-red-600
+              px-2 py-1 text-[9px]
+              font-bold text-white
+              sm:left-2 sm:top-2 sm:text-[10px]
+            "
+          >
             Promoção
           </span>
         )}
 
         {/* QUANTIDADE NO CARRINHO */}
         {quantidadeNoCarrinho > 0 && (
-          <span className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-full bg-green-600 px-2.5 py-1 text-[10px] font-bold text-white">
-            <Check size={12} />
+          <span
+            className="
+              absolute right-1 top-1 z-20
+              flex max-w-[75%] items-center gap-1
+              truncate rounded-full bg-green-600
+              px-2 py-1 text-[9px]
+              font-bold text-white
+              sm:right-2 sm:top-2 sm:text-[10px]
+            "
+          >
+            <Check size={11} />
             {quantidadeNoCarrinho} no carrinho
           </span>
         )}
       </div>
 
-{/* INFORMAÇÕES DO PRODUTO */}
-<div className="flex min-h-0 flex-1 flex-col p-2">
+      {/* ==================================================
+          INFORMAÇÕES DO PRODUTO
+      ================================================== */}
 
-  {/* CATEGORIA */}
-  <p className="h-4 shrink-0 truncate text-[11px] font-semibold text-cyan-600">
-    {product.category}
-  </p>
+      <div
+        className="
+          flex min-h-0 min-w-0 flex-1 flex-col
+          p-1.5 sm:p-2
+        "
+      >
 
-  {/* NOME */}
-  <h3 className="mt-1 h-10 shrink-0 line-clamp-2 overflow-hidden text-sm font-bold leading-5 text-gray-800">
-    {product.name}
-  </h3>
+        {/* CATEGORIA */}
+        <p
+          className="
+            h-4 shrink-0 truncate
+            text-[10px] font-semibold
+            text-cyan-600 sm:text-[11px]
+          "
+        >
+          {product.category}
+        </p>
 
-  {/* PREÇOS */}
-  <div className="mt-1 shrink-0">
-    <p className="truncate text-sm font-bold text-[#071B2D]">
-      {formatarPreco(preco)} MT
-    </p>
+        {/* NOME DO PRODUTO */}
+        <Link
+          href={linkProduto}
+          className="
+            mt-0.5 h-9 shrink-0 min-w-0
+            overflow-hidden text-[11px]
+            font-bold leading-[17px]
+            text-gray-800 hover:text-cyan-600
+            sm:mt-1 sm:h-10
+            sm:text-sm sm:leading-5
+          "
+        >
+          <h3 className="line-clamp-2 break-words">
+            {product.name}
+          </h3>
+        </Link>
 
-    {temPrecoAnterior && (
-      <p className="truncate text-[10px] text-gray-400 line-through">
-        {formatarPreco(precoAnterior)} MT
-      </p>
-    )}
-  </div>
+        {/* ==================================================
+            PREÇOS — SEM IVA OU IMPOSTOS
+        ================================================== */}
 
-  {/* BOTÃO DO CARRINHO */}
-  <button
-    type="button"
-    onClick={adicionarProduto}
-    disabled={!disponivel}
-    className={`mt-auto flex h-9 min-h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg px-2 text-[11px] font-semibold text-white transition ${
-      disponivel
-        ? "bg-[#071B2D] hover:bg-cyan-600 cursor-pointer"
-        : "bg-gray-400 cursor-not-allowed opacity-80"
-    }`}
-  >
-    <ShoppingCart size={14} />
+        <div className="mt-1 min-w-0 shrink-0">
+          <p
+            className="
+              truncate text-xs font-bold
+              text-[#071B2D] sm:text-sm
+            "
+          >
+            {formatarPreco(preco)} MT
+          </p>
 
-    {disponivel ? "Disponível" : "Indisponível"}
-  </button>
-</div>
+          {temPrecoAnterior && (
+            <p
+              className="
+                truncate text-[9px]
+                text-gray-400 line-through
+                sm:text-[10px]
+              "
+            >
+              {formatarPreco(precoAnterior)} MT
+            </p>
+          )}
+        </div>
+
+        {/* ==================================================
+            CONTROLO DO CARRINHO
+        ================================================== */}
+
+        <div
+          className="
+            mt-auto h-8 min-h-8 w-full shrink-0
+            sm:h-9 sm:min-h-9
+          "
+        >
+
+          {/* INDISPONÍVEL */}
+          {!disponivel ? (
+            <button
+              type="button"
+              disabled
+              className="
+                flex h-full w-full
+                items-center justify-center
+                rounded-lg bg-gray-400
+                text-[10px] font-semibold
+                text-white opacity-80
+                sm:text-[11px]
+              "
+            >
+              Indisponível
+            </button>
+          ) : quantidadeNoCarrinho === 0 ? (
+
+            /* ADICIONAR AO CARRINHO */
+            <button
+              type="button"
+              onClick={adicionarProduto}
+              className="
+                flex h-full w-full
+                items-center justify-center gap-1
+                rounded-lg bg-[#071B2D]
+                text-[10px] font-semibold
+                text-white transition
+                hover:bg-cyan-600
+                sm:gap-2 sm:text-[11px]
+              "
+            >
+              <Plus size={14} />
+              Adicionar
+            </button>
+          ) : (
+
+            /* ALTERAR QUANTIDADE */
+            <div
+              className="
+                flex h-full w-full
+                items-center justify-between
+                overflow-hidden rounded-lg
+                border border-[#071B2D]
+              "
+            >
+
+              {/* DIMINUIR */}
+              <button
+                type="button"
+                onClick={diminuirQuantidade}
+                aria-label="Diminuir quantidade"
+                className="
+                  flex h-full w-1/3
+                  items-center justify-center
+                  bg-gray-100 text-[#071B2D]
+                  transition hover:bg-gray-200
+                  active:bg-gray-300
+                "
+              >
+                <Minus size={14} />
+              </button>
+
+              {/* QUANTIDADE */}
+              <span
+                className="
+                  flex h-full flex-1
+                  items-center justify-center
+                  text-xs font-bold
+                  text-[#071B2D] sm:text-sm
+                "
+              >
+                {quantidadeNoCarrinho}
+              </span>
+
+              {/* AUMENTAR */}
+              <button
+                type="button"
+                onClick={aumentarQuantidade}
+                aria-label="Aumentar quantidade"
+                className="
+                  flex h-full w-1/3
+                  items-center justify-center
+                  bg-[#071B2D] text-white
+                  transition hover:bg-cyan-600
+                  active:bg-cyan-700
+                "
+              >
+                <Plus size={14} />
+              </button>
+
+            </div>
+          )}
+        </div>
+      </div>
     </article>
   );
 }

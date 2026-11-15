@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  EyeOff,
 } from "lucide-react";
 
 async function GestaoStock() {
@@ -23,12 +24,22 @@ async function GestaoStock() {
     },
   });
 
+  // Indicadores
   const totalProdutos = produtos.length;
+
   const disponiveis = produtos.filter(
     (produto) => produto.inStock
   ).length;
-  const indisponiveis = totalProdutos - disponiveis;
 
+  const indisponiveis = produtos.filter(
+    (produto) => !produto.inStock
+  ).length;
+
+  const ocultos = produtos.filter(
+    (produto) => !produto.active
+  ).length;
+
+  // Formatar produtos para o StockManager
   const produtosFormatados = produtos.map((produto) => ({
     id: produto.id,
     name: produto.name,
@@ -42,12 +53,15 @@ async function GestaoStock() {
   return (
     <div className="space-y-6">
       {/* Indicadores */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+        {/* Total de produtos */}
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-500">
               Total de produtos
             </p>
+
             <Package className="text-gray-400" size={21} />
           </div>
 
@@ -56,11 +70,13 @@ async function GestaoStock() {
           </p>
         </div>
 
+        {/* Disponíveis */}
         <div className="rounded-xl border border-green-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-500">
               Disponíveis
             </p>
+
             <CheckCircle2 className="text-green-600" size={21} />
           </div>
 
@@ -69,11 +85,13 @@ async function GestaoStock() {
           </p>
         </div>
 
+        {/* Indisponíveis */}
         <div className="rounded-xl border border-red-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-500">
               Indisponíveis
             </p>
+
             <XCircle className="text-red-500" size={21} />
           </div>
 
@@ -81,9 +99,25 @@ async function GestaoStock() {
             {indisponiveis}
           </p>
         </div>
+
+        {/* Ocultos */}
+        <div className="rounded-xl border border-gray-300 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-500">
+              Ocultos
+            </p>
+
+            <EyeOff className="text-gray-500" size={21} />
+          </div>
+
+          <p className="mt-3 text-3xl font-bold text-gray-700">
+            {ocultos}
+          </p>
+        </div>
+
       </div>
 
-      {/* Gestão individual */}
+      {/* Gestão individual dos produtos */}
       <StockManager produtos={produtosFormatados} />
     </div>
   );
@@ -93,8 +127,14 @@ function StockLoading() {
   return (
     <div className="flex min-h-[300px] items-center justify-center rounded-xl border border-gray-200 bg-white">
       <div className="flex flex-col items-center gap-3 text-gray-500">
-        <Loader2 size={30} className="animate-spin text-lime-600" />
-        <p className="text-sm">A carregar produtos...</p>
+        <Loader2
+          size={30}
+          className="animate-spin text-lime-600"
+        />
+
+        <p className="text-sm">
+          A carregar produtos...
+        </p>
       </div>
     </div>
   );
@@ -103,9 +143,11 @@ function StockLoading() {
 export default function StockPage() {
   return (
     <div className="space-y-6 p-4 md:p-6">
+
       {/* Cabeçalho */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
+
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-lime-100 text-lime-700">
             <Package size={23} />
           </div>
@@ -114,16 +156,20 @@ export default function StockPage() {
             <h1 className="text-2xl font-bold text-gray-900">
               Gestão de disponibilidade
             </h1>
+
             <p className="text-sm text-gray-500">
-              Controle individual da disponibilidade dos produtos.
+              Controle individual da disponibilidade e visibilidade dos produtos.
             </p>
           </div>
+
         </div>
       </div>
 
+      {/* Conteúdo */}
       <Suspense fallback={<StockLoading />}>
         <GestaoStock />
       </Suspense>
+
     </div>
   );
 }

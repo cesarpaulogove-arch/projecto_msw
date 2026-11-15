@@ -1,9 +1,12 @@
-
 "use client";
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import {
+  gerarPDFEncomenda,
+  type DadosPDFEncomenda,
+} from "@/lib/gerar-pdf-encomenda";
 
 import {
   ArrowLeft,
@@ -21,41 +24,51 @@ import {
   Pencil,
   Truck,
   ClipboardCheck,
+  Building2,
+  Hash,
 } from "lucide-react";
 
 import { useCarrinho } from "@/app/components/carrinho/CartProvider";
+type EncomendaCriada = DadosPDFEncomenda & {
+  id: string;
+  estado: string;
+};
 
-interface EncomendaCriada {
-  orderNumber: string;
-  total: number;
-}
+type CustomerType = "INDIVIDUAL" | "COMPANY";
 
 interface ClienteEncontrado {
   nome: string;
   telefone: string;
   email: string;
   endereco: string;
+  customerType?: CustomerType | null;
+  company?: string | null;
+  nuit?: string | null;
 }
 
-type EstadoCliente =
-  | "inicial"
-  | "pesquisando"
-  | "encontrado"
-  | "novo";
+type EstadoCliente = "inicial" | "encontrado" | "novo";
+
+type ZonaEntrega = "" | "MAPUTO" | "MATOLA";
 
 export default function FinalizarEncomendaPage() {
   const {
     itens,
+    itensSelecionados,
     remover,
     atualizarQuantidade,
-    limpar,
-    total,
+    totalSelecionado,
   } = useCarrinho();
 
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
   const [endereco, setEndereco] = useState("");
+
+  const [customerType, setCustomerType] =
+    useState<CustomerType>("INDIVIDUAL");
+
+  const [empresa, setEmpresa] = useState("");
+  const [nuit, setNuit] = useState("");
 
   const [estadoCliente, setEstadoCliente] =
     useState<EstadoCliente>("inicial");
@@ -69,25 +82,29 @@ export default function FinalizarEncomendaPage() {
   const [erro, setErro] = useState("");
 
   const [encomenda, setEncomenda] =
-    useState<EncomendaCriada | null>(null);
+  useState<EncomendaCriada | null>(null);
 
-  const [zonaEntrega, setZonaEntrega] = useState("");
+const [aGerarPDF, setAGerarPDF] = useState(false);
+const [erroPDF, setErroPDF] = useState("");
+
+  const [zonaEntrega, setZonaEntrega] =
+    useState<ZonaEntrega>("");
 
   const formatarPreco = (valor: number) =>
     valor.toLocaleString("pt-MZ", {
       style: "currency",
       currency: "MZN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     });
 
-  // Verificar disponibilidade dos produtos
-  const produtosIndisponiveis = itens.filter(
+  const produtosIndisponiveis = itensSelecionados.filter(
     (item) => !item.produto.inStock
   );
 
   const temProdutosIndisponiveis =
     produtosIndisponiveis.length > 0;
 
-  // PESQUISAR CLIENTE PELO TELEFONE
   async function pesquisarCliente() {
     if (aPesquisar) return;
 
@@ -116,18 +133,25 @@ export default function FinalizarEncomendaPage() {
 
       if (!resposta.ok || !dados.success) {
         throw new Error(
-          dados.error ||
-            "Não foi possível pesquisar o cliente."
+          dados.error || "Não foi possível pesquisar o cliente."
         );
       }
 
       if (dados.encontrado && dados.cliente) {
         const cliente: ClienteEncontrado = dados.cliente;
 
-        setNome(cliente.nome);
+        setNome(cliente.nome || "");
         setTelefone(cliente.telefone || numero);
         setEmail(cliente.email || "");
         setEndereco(cliente.endereco || "");
+
+        setCustomerType(
+          cliente.customerType ||
+            (cliente.company ? "COMPANY" : "INDIVIDUAL")
+        );
+
+        setEmpresa(cliente.company || "");
+        setNuit(cliente.nuit || "");
 
         setClienteAntigo(true);
         setEstadoCliente("encontrado");
@@ -136,6 +160,10 @@ export default function FinalizarEncomendaPage() {
         setNome("");
         setEmail("");
         setEndereco("");
+
+        setCustomerType("INDIVIDUAL");
+        setEmpresa("");
+        setNuit("");
 
         setClienteAntigo(false);
         setEstadoCliente("novo");
@@ -152,30 +180,39 @@ export default function FinalizarEncomendaPage() {
     }
   }
 
-  // ALTERAR TELEFONE
   function alterarTelefone() {
     setEstadoCliente("inicial");
     setClienteAntigo(false);
     setEditarDados(false);
 
+    setTelefone("");
     setNome("");
     setEmail("");
     setEndereco("");
+
+    setCustomerType("INDIVIDUAL");
+    setEmpresa("");
+    setNuit("");
+
     setZonaEntrega("");
-
     setErro("");
   }
 
-  // SELECCIONAR OU CANCELAR ENTREGA
-  function seleccionarZona(zona: string) {
-    setZonaEntrega((actual) =>
-      actual === zona ? "" : zona
-    );
-
+  function seleccionarZona(zona: ZonaEntrega) {
+    setZonaEntrega(zona);
     setErro("");
   }
 
-  // REGISTAR ENCOMENDA
+  function seleccionarTipoCliente(tipo: CustomerType) {
+    setCustomerType(tipo);
+    setErro("");
+
+    if (tipo === "INDIVIDUAL") {
+      setEmpresa("");
+      setNuit("");
+    }
+  }
+
   async function confirmarEncomenda(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -185,50 +222,77 @@ export default function FinalizarEncomendaPage() {
 
     setErro("");
 
-    if (itens.length === 0) {
-      setErro("O carrinho está vazio.");
+    if (itensSelecionados.length === 0) {
+      setErro(
+        "Selecciona pelo menos um produto para encomendar."
+      );
       return;
     }
 
-    // Impedir encomenda de produtos indisponíveis
     if (temProdutosIndisponiveis) {
       setErro(
-        "Existem produtos indisponíveis no carrinho. Remove-os antes de continuar."
+        "Existem produtos seleccionados indisponíveis. Remove-os ou desselecciona-os antes de continuar."
       );
       return;
     }
 
     if (!nome.trim() || !telefone.trim()) {
-      setErro(
-        "Preenche o nome e o número de telefone."
-      );
+      setErro("Preenche o nome e o número de telefone.");
+      return;
+    }
+
+    if (
+      customerType === "COMPANY" &&
+      !empresa.trim()
+    ) {
+      setErro("Introduz o nome da empresa.");
+      return;
+    }
+
+    if (
+      customerType === "COMPANY" &&
+      !/^\d{9}$/.test(nuit)
+    ) {
+      setErro("O NUIT deve conter exactamente 9 dígitos.");
       return;
     }
 
     if (zonaEntrega && !endereco.trim()) {
-      setErro(
-        "Introduz o endereço para realizar a entrega."
-      );
+      setErro("Introduz o endereço para realizar a entrega.");
       return;
     }
 
     setAEnviar(true);
 
     try {
+      // Guardar os IDs dos produtos seleccionados nesta encomenda.
+      const produtosEncomendados = itensSelecionados.map(
+        (item) => item.produto.id
+      );
+
       const resposta = await fetch("/api/encomendas", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          customerType,
           customerName: nome.trim(),
+          company:
+            customerType === "COMPANY"
+              ? empresa.trim()
+              : null,
+          nuit:
+            customerType === "COMPANY"
+              ? nuit
+              : null,
           phone: telefone.trim(),
           email: email.trim() || undefined,
           address: zonaEntrega
             ? endereco.trim()
             : "A combinar",
           district: zonaEntrega || undefined,
-          items: itens.map((item) => ({
+          items: itensSelecionados.map((item) => ({
             productId: item.produto.id,
             quantity: item.quantidade,
           })),
@@ -239,8 +303,7 @@ export default function FinalizarEncomendaPage() {
 
       if (!resposta.ok || !dados?.success) {
         throw new Error(
-          dados?.error ||
-            "Não foi possível registar a encomenda."
+          dados?.error || "Não foi possível registar a encomenda."
         );
       }
 
@@ -253,12 +316,55 @@ export default function FinalizarEncomendaPage() {
         );
       }
 
-      setEncomenda({
-        orderNumber: String(dados.orderNumber),
-        total: Number(dados.total),
-      });
+     if (!dados.encomenda) {
+  throw new Error(
+    "A encomenda foi registada, mas os dados do documento não foram devolvidos."
+  );
+}
 
-      limpar();
+const dadosEncomenda = dados.encomenda;
+
+setEncomenda({
+  id: String(dadosEncomenda.id),
+  referencia: String(dadosEncomenda.referencia),
+
+  customerType: dadosEncomenda.customerType,
+  cliente: dadosEncomenda.cliente,
+  empresa: dadosEncomenda.empresa,
+  nuit: dadosEncomenda.nuit,
+
+  telefone: dadosEncomenda.telefone,
+  email: dadosEncomenda.email,
+  endereco: dadosEncomenda.endereco,
+  distrito: dadosEncomenda.distrito,
+  observacoes: dadosEncomenda.observacoes,
+
+  entrega: Number(dadosEncomenda.entrega),
+  total: Number(dadosEncomenda.total),
+
+  estado: dadosEncomenda.estado,
+
+  produtos: dadosEncomenda.produtos.map(
+    (produto: {
+      nome: string;
+      quantidade: number;
+      preco: number;
+      total: number;
+    }) => ({
+      nome: produto.nome,
+      quantidade: produto.quantidade,
+      preco: Number(produto.preco),
+      total: Number(produto.total),
+    })
+  ),
+
+  data: dadosEncomenda.data,
+});
+
+      // Remover apenas os produtos incluídos na encomenda.
+      produtosEncomendados.forEach((produtoId) => {
+        remover(produtoId);
+      });
     } catch (error) {
       setErro(
         error instanceof Error
@@ -270,59 +376,131 @@ export default function FinalizarEncomendaPage() {
     }
   }
 
-  // ENCOMENDA CONFIRMADA
-  if (encomenda) {
-    return (
-      <main className="min-h-screen bg-gray-50 px-4 py-16">
-        <div className="mx-auto max-w-xl rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-          <CheckCircle2 className="mx-auto h-16 w-16 text-green-600" />
+  async function descarregarPDF() {
+  if (!encomenda || aGerarPDF) return;
 
-          <h1 className="mt-5 text-2xl font-black text-[#071B2D]">
-            Encomenda registada!
-          </h1>
+  setAGerarPDF(true);
+  setErroPDF("");
 
-          <p className="mt-3 text-gray-600">
-            A tua encomenda foi registada com sucesso.
+  try {
+    await gerarPDFEncomenda(encomenda);
+  } catch (error) {
+    console.error("ERRO AO GERAR PDF:", error);
+
+    setErroPDF(
+      "Não foi possível gerar o PDF. A encomenda continua registada. Tenta novamente."
+    );
+  } finally {
+    setAGerarPDF(false);
+  }
+}
+if (encomenda) {
+  return (
+    <main className="min-h-screen bg-gray-50 px-4 py-16">
+      <div className="mx-auto max-w-xl rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+        <CheckCircle2 className="mx-auto h-16 w-16 text-green-600" />
+
+        <h1 className="mt-5 text-2xl font-black text-[#071B2D]">
+          Encomenda registada!
+        </h1>
+
+        <p className="mt-3 text-gray-600">
+          A tua encomenda foi registada com sucesso.
+        </p>
+
+        <div className="mt-6 rounded-xl bg-gray-50 p-5">
+          <p className="text-sm text-gray-500">
+            Referência da encomenda
           </p>
 
-          <div className="mt-6 rounded-xl bg-gray-50 p-5">
-            <p className="text-sm text-gray-500">
-              Referência da encomenda
-            </p>
+          <p className="mt-1 text-xl font-black text-cyan-700">
+            {encomenda.referencia}
+          </p>
 
-            <p className="mt-1 text-xl font-black text-cyan-700">
-              {encomenda.orderNumber}
-            </p>
+          <p className="mt-4 text-sm text-gray-500">
+            Total dos produtos
+          </p>
 
-            <p className="mt-4 text-sm text-gray-500">
-              Total dos produtos
-            </p>
+          <p className="text-2xl font-black text-[#071B2D]">
+            {formatarPreco(encomenda.total)}
+          </p>
 
-            <p className="text-2xl font-black text-[#071B2D]">
-              {formatarPreco(encomenda.total)}
-            </p>
+          <p className="mt-3 text-xs text-gray-500">
+            {encomenda.distrito
+              ? "A equipa MSW BUSINESS confirmará o custo da entrega e os detalhes dos testes dos componentes."
+              : "Não foi solicitada entrega. A equipa MSW BUSINESS poderá contactar-te para acompanhar a encomenda."}
+          </p>
+        </div>
 
-            <p className="mt-3 text-xs text-gray-500">
-              {zonaEntrega
-                ? "A equipa MSW BUSINESS confirmará o custo da entrega e os detalhes dos testes dos componentes."
-                : "Não foi solicitada entrega. A equipa MSW BUSINESS poderá contactar-te para acompanhar a encomenda."}
-            </p>
+        <div className="mt-6 rounded-xl border border-gray-200 p-5 text-left">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-50">
+              <ClipboardCheck className="h-6 w-6 text-red-600" />
+            </div>
+
+            <div>
+              <h2 className="font-bold text-[#071B2D]">
+                Documento da encomenda
+              </h2>
+
+              <p className="text-sm text-gray-500">
+                PDF com os produtos e os dados da encomenda.
+              </p>
+            </div>
           </div>
 
-          <p className="mt-5 text-sm text-gray-500">
-            Guarda a referência para futuras consultas sobre a tua encomenda.
-          </p>
+          {erroPDF && (
+            <p
+              role="alert"
+              className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700"
+            >
+              {erroPDF}
+            </p>
+          )}
 
-          <Link
-            href="/"
-            className="mt-7 inline-flex items-center justify-center rounded-xl bg-[#071B2D] px-7 py-3 font-bold text-white transition hover:bg-cyan-700"
+          <button
+            type="button"
+            onClick={descarregarPDF}
+            disabled={aGerarPDF}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-5 py-3 font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Voltar à loja
-          </Link>
+            {aGerarPDF ? (
+              <>
+                <Loader2 size={19} className="animate-spin" />
+                A gerar PDF...
+              </>
+            ) : (
+              <>
+                <ClipboardCheck size={19} />
+                Descarregar PDF da encomenda
+              </>
+            )}
+          </button>
         </div>
-      </main>
-    );
-  }
+
+        <p className="mt-5 text-sm text-gray-500">
+          Guarda a referência para futuras consultas sobre a tua encomenda.
+        </p>
+
+        <Link
+          href="/"
+          className="mt-7 inline-flex items-center justify-center rounded-xl bg-[#071B2D] px-7 py-3 font-bold text-white transition hover:bg-cyan-700"
+        >
+          Voltar à loja
+        </Link>
+
+        {itens.length > 0 && (
+          <Link
+            href="/carrinho"
+            className="mt-3 inline-flex items-center justify-center rounded-xl border border-gray-300 px-7 py-3 font-bold text-gray-700 transition hover:bg-gray-50"
+          >
+            Ver restantes produtos no carrinho
+          </Link>
+        )}
+      </div>
+    </main>
+  );
+}
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-10">
@@ -364,12 +542,19 @@ export default function FinalizarEncomendaPage() {
             className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
           >
             <p className="font-bold">
-              Existem produtos indisponíveis.
+              Existem produtos seleccionados indisponíveis.
             </p>
 
             <p className="mt-1">
-              Remove os produtos assinalados como indisponíveis para poderes finalizar a encomenda.
+              Remove-os ou volta ao carrinho para os desseleccionar antes de finalizar a encomenda.
             </p>
+
+            <Link
+              href="/carrinho"
+              className="mt-3 inline-flex font-bold underline"
+            >
+              Voltar ao carrinho
+            </Link>
           </div>
         )}
 
@@ -390,6 +575,25 @@ export default function FinalizarEncomendaPage() {
               className="mt-6 inline-flex rounded-xl bg-cyan-700 px-6 py-3 font-bold text-white hover:bg-cyan-800"
             >
               Explorar produtos
+            </Link>
+          </div>
+        ) : itensSelecionados.length === 0 ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center">
+            <ShoppingBag className="mx-auto h-14 w-14 text-gray-300" />
+
+            <h2 className="mt-4 text-xl font-bold text-gray-800">
+              Nenhum produto seleccionado
+            </h2>
+
+            <p className="mt-2 text-gray-500">
+              Volta ao carrinho e selecciona os produtos que pretendes incluir nesta encomenda.
+            </p>
+
+            <Link
+              href="/carrinho"
+              className="mt-6 inline-flex rounded-xl bg-cyan-700 px-6 py-3 font-bold text-white hover:bg-cyan-800"
+            >
+              Voltar ao carrinho
             </Link>
           </div>
         ) : (
@@ -422,9 +626,7 @@ export default function FinalizarEncomendaPage() {
                     <input
                       type="tel"
                       value={telefone}
-                      onChange={(e) =>
-                        setTelefone(e.target.value)
-                      }
+                      onChange={(e) => setTelefone(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
@@ -439,8 +641,8 @@ export default function FinalizarEncomendaPage() {
                     <button
                       type="button"
                       onClick={pesquisarCliente}
-                      disabled={aPesquisar}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-5 py-3 font-bold text-white transition hover:bg-cyan-800 disabled:opacity-60"
+                      disabled={aPesquisar || !telefone.trim()}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-5 py-3 font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {aPesquisar ? (
                         <>
@@ -517,13 +719,49 @@ export default function FinalizarEncomendaPage() {
                         <>
                           <div>
                             <p className="text-xs font-semibold uppercase text-gray-500">
-                              Nome completo
+                              Tipo de cliente
+                            </p>
+
+                            <p className="mt-1 font-bold text-[#071B2D]">
+                              {customerType === "COMPANY"
+                                ? "Empresa"
+                                : "Pessoa individual"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase text-gray-500">
+                              Nome da pessoa de contacto
                             </p>
 
                             <p className="mt-1 font-bold text-[#071B2D]">
                               {nome}
                             </p>
                           </div>
+
+                          {customerType === "COMPANY" && (
+                            <>
+                              <div>
+                                <p className="text-xs font-semibold uppercase text-gray-500">
+                                  Empresa
+                                </p>
+
+                                <p className="mt-1 font-medium text-gray-700">
+                                  {empresa}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs font-semibold uppercase text-gray-500">
+                                  NUIT
+                                </p>
+
+                                <p className="mt-1 font-medium text-gray-700">
+                                  {nuit}
+                                </p>
+                              </div>
+                            </>
+                          )}
 
                           <div>
                             <p className="text-xs font-semibold uppercase text-gray-500">
@@ -546,24 +784,138 @@ export default function FinalizarEncomendaPage() {
                         </>
                       ) : (
                         <>
+                          {/* TIPO DE CLIENTE */}
+                          <div>
+                            <label className="mb-3 block text-sm font-semibold text-gray-700">
+                              Tipo de cliente *
+                            </label>
+
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  seleccionarTipoCliente("INDIVIDUAL")
+                                }
+                                className={`rounded-xl border p-4 text-left transition ${
+                                  customerType === "INDIVIDUAL"
+                                    ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
+                                    : "border-gray-200 hover:border-cyan-300"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <User size={19} className="text-cyan-700" />
+                                  <p className="font-bold text-[#071B2D]">
+                                    Pessoa individual
+                                  </p>
+                                </div>
+
+                                <p className="mt-2 text-sm text-gray-500">
+                                  Encomenda em nome pessoal.
+                                </p>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  seleccionarTipoCliente("COMPANY")
+                                }
+                                className={`rounded-xl border p-4 text-left transition ${
+                                  customerType === "COMPANY"
+                                    ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
+                                    : "border-gray-200 hover:border-cyan-300"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Building2 size={19} className="text-cyan-700" />
+                                  <p className="font-bold text-[#071B2D]">
+                                    Empresa
+                                  </p>
+                                </div>
+
+                                <p className="mt-2 text-sm text-gray-500">
+                                  Encomenda em nome de uma empresa.
+                                </p>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* NOME DO CONTACTO */}
                           <div>
                             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
                               <User size={16} />
-                              Nome completo *
+                              {customerType === "COMPANY"
+                                ? "Nome da pessoa de contacto *"
+                                : "Nome completo *"}
                             </label>
 
                             <input
                               required
                               value={nome}
-                              onChange={(e) =>
-                                setNome(e.target.value)
+                              onChange={(e) => setNome(e.target.value)}
+                              placeholder={
+                                customerType === "COMPANY"
+                                  ? "Nome do responsável pela encomenda"
+                                  : "Introduz o teu nome"
                               }
-                              placeholder="Introduz o teu nome"
                               autoComplete="name"
                               className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
                             />
                           </div>
 
+                          {/* DADOS DA EMPRESA */}
+                          {customerType === "COMPANY" && (
+                            <>
+                              <div>
+                                <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                  <Building2 size={16} />
+                                  Nome da empresa *
+                                </label>
+
+                                <input
+                                  required
+                                  value={empresa}
+                                  onChange={(e) =>
+                                    setEmpresa(e.target.value)
+                                  }
+                                  placeholder="Nome oficial da empresa"
+                                  autoComplete="organization"
+                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                  <Hash size={16} />
+                                  NUIT *
+                                </label>
+
+                                <input
+                                  required
+                                  type="text"
+                                  inputMode="numeric"
+                                  maxLength={9}
+                                  minLength={9}
+                                  pattern="[0-9]{9}"
+                                  value={nuit}
+                                  onChange={(e) =>
+                                    setNuit(
+                                      e.target.value
+                                        .replace(/\D/g, "")
+                                        .slice(0, 9)
+                                    )
+                                  }
+                                  placeholder="Introduz os 9 dígitos do NUIT"
+                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                                />
+
+                                <p className="mt-1 text-xs text-gray-500">
+                                  O NUIT deve conter exactamente 9 dígitos.
+                                </p>
+                              </div>
+                            </>
+                          )}
+
+                          {/* E-MAIL */}
                           <div>
                             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
                               <Mail size={16} />
@@ -573,9 +925,7 @@ export default function FinalizarEncomendaPage() {
                             <input
                               type="email"
                               value={email}
-                              onChange={(e) =>
-                                setEmail(e.target.value)
-                              }
+                              onChange={(e) => setEmail(e.target.value)}
                               placeholder="exemplo@email.com"
                               autoComplete="email"
                               className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
@@ -621,7 +971,7 @@ export default function FinalizarEncomendaPage() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <button
                         type="button"
-                        onClick={() => setZonaEntrega("")}
+                        onClick={() => seleccionarZona("")}
                         className={`rounded-xl border p-4 text-left transition ${
                           !zonaEntrega
                             ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -645,7 +995,10 @@ export default function FinalizarEncomendaPage() {
 
                       <button
                         type="button"
-                        onClick={() => setZonaEntrega("MAPUTO")}
+                        onClick={() => {
+                          if (!zonaEntrega) seleccionarZona("MAPUTO");
+                          else seleccionarZona("");
+                        }}
                         className={`rounded-xl border p-4 text-left transition ${
                           zonaEntrega
                             ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -679,9 +1032,7 @@ export default function FinalizarEncomendaPage() {
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                seleccionarZona("MAPUTO")
-                              }
+                              onClick={() => seleccionarZona("MAPUTO")}
                               className={`rounded-xl border p-4 text-left transition ${
                                 zonaEntrega === "MAPUTO"
                                   ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -699,9 +1050,7 @@ export default function FinalizarEncomendaPage() {
 
                             <button
                               type="button"
-                              onClick={() =>
-                                seleccionarZona("MATOLA")
-                              }
+                              onClick={() => seleccionarZona("MATOLA")}
                               className={`rounded-xl border p-4 text-left transition ${
                                 zonaEntrega === "MATOLA"
                                   ? "border-cyan-600 bg-cyan-50 ring-2 ring-cyan-100"
@@ -729,9 +1078,7 @@ export default function FinalizarEncomendaPage() {
                             required
                             rows={3}
                             value={endereco}
-                            onChange={(e) =>
-                              setEndereco(e.target.value)
-                            }
+                            onChange={(e) => setEndereco(e.target.value)}
                             placeholder="Rua, avenida, número ou ponto de referência"
                             autoComplete="street-address"
                             className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
@@ -786,7 +1133,7 @@ export default function FinalizarEncomendaPage() {
                         <p className="text-xs text-gray-500">
                           Maputo: 300–500 MT. Matola: 600–1.000 MT.
                           O custo exacto será confirmado pela equipa MSW BUSINESS.
-                          Este valor não está incluído no subtotal.
+                          Este valor não está incluído no total dos produtos.
                         </p>
                       </div>
                     )}
@@ -796,7 +1143,7 @@ export default function FinalizarEncomendaPage() {
                     type="submit"
                     disabled={
                       aEnviar ||
-                      itens.length === 0 ||
+                      itensSelecionados.length === 0 ||
                       temProdutosIndisponiveis
                     }
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-6 py-4 font-bold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -821,7 +1168,7 @@ export default function FinalizarEncomendaPage() {
               </h2>
 
               <div className="max-h-[420px] space-y-5 overflow-y-auto">
-                {itens.map((item) => (
+                {itensSelecionados.map((item) => (
                   <div
                     key={item.produto.id}
                     className="flex gap-3 border-b border-gray-100 pb-5"
@@ -896,9 +1243,7 @@ export default function FinalizarEncomendaPage() {
 
                         <button
                           type="button"
-                          onClick={() =>
-                            remover(item.produto.id)
-                          }
+                          onClick={() => remover(item.produto.id)}
                           className="ml-auto rounded-lg p-1.5 text-red-500 hover:bg-red-50"
                           aria-label="Remover produto"
                         >
@@ -910,11 +1255,11 @@ export default function FinalizarEncomendaPage() {
                 ))}
               </div>
 
-              {/* TOTAIS */}
+              {/* TOTAIS - SEM IVA */}
               <div className="mt-6 space-y-3">
                 <div className="flex justify-between text-sm text-gray-600">
-                  <span>Subtotal</span>
-                  <span>{formatarPreco(total)}</span>
+                  <span>Total dos produtos seleccionados</span>
+                  <span>{formatarPreco(totalSelecionado)}</span>
                 </div>
 
                 <div className="flex justify-between text-sm text-gray-600">
@@ -930,23 +1275,30 @@ export default function FinalizarEncomendaPage() {
                 </div>
 
                 <div className="border-t border-gray-200 pt-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="font-bold text-[#071B2D]">
                       Total dos produtos
                     </span>
 
                     <span className="text-xl font-black text-cyan-700">
-                      {formatarPreco(total)}
+                      {formatarPreco(totalSelecionado)}
                     </span>
                   </div>
 
                   <p className="mt-2 text-xs text-gray-500">
                     {zonaEntrega
                       ? "O custo exacto da entrega será confirmado pela equipa MSW BUSINESS. Os testes dos componentes serão realizados no acto da entrega."
-                      : "A entrega não foi seleccionada. O valor apresentado corresponde apenas aos produtos."}
+                      : "A entrega não foi seleccionada. O valor apresentado corresponde apenas aos produtos seleccionados."}
                   </p>
                 </div>
               </div>
+
+              <Link
+                href="/carrinho"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-gray-300 px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+              >
+                Voltar ao carrinho
+              </Link>
             </aside>
           </div>
         )}

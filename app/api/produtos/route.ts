@@ -128,10 +128,6 @@ export async function POST(request: NextRequest) {
       dados.get("oldPrice") || ""
     ).trim();
 
-    const ivaRateRaw = String(
-      dados.get("ivaRate") ?? "16"
-    ).trim();
-
     const categoryId = String(
       dados.get("categoryId") || ""
     ).trim();
@@ -143,7 +139,7 @@ export async function POST(request: NextRequest) {
     const promotion = dados.get("promotion") === "true";
 
     const price = Number(priceRaw);
-    const ivaRate = Number(ivaRateRaw);
+  
 
     // 2. Receber imagens
     const imagens = dados
@@ -189,21 +185,6 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Introduza um preço válido." },
-        { status: 400 }
-      );
-    }
-
-    // 6. Validar IVA
-    if (
-      !ivaRateRaw ||
-      !Number.isFinite(ivaRate) ||
-      ivaRate < 0 ||
-      ivaRate > 100
-    ) {
-      return NextResponse.json(
-        {
-          error: "Introduza uma taxa de IVA válida entre 0% e 100%.",
-        },
         { status: 400 }
       );
     }
@@ -361,7 +342,6 @@ export async function POST(request: NextRequest) {
         description: description || null,
         price,
         oldPrice,
-        ivaRate,
         inStock,
         image: imagemPrincipal,
         images: caminhosImagens,

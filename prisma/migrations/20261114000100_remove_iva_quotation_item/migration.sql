@@ -1,0 +1,3 @@
+ALTER TABLE "QuotationItem"
+DROP COLUMN IF EXISTS "ivaRate",
+DROP COLUMN IF EXISTS "ivaAmount";

@@ -130,8 +130,6 @@ async function CotacoesConteudo({
             productName: true,
             quantity: true,
             unitPrice: true,
-            subtotal: true,
-            ivaAmount: true,
             total: true,
           },
         },
@@ -450,8 +448,6 @@ async function CotacoesConteudo({
                             <th className="px-4 py-3">Produto</th>
                             <th className="px-4 py-3">Quantidade</th>
                             <th className="px-4 py-3">Preço unitário</th>
-                            <th className="px-4 py-3">Subtotal</th>
-                            <th className="px-4 py-3">IVA</th>
                             <th className="px-4 py-3">Total</th>
                           </tr>
                         </thead>
@@ -469,14 +465,6 @@ async function CotacoesConteudo({
 
                               <td className="px-4 py-3 text-gray-600">
                                 {formatarMoeda(String(item.unitPrice))}
-                              </td>
-
-                              <td className="px-4 py-3 text-gray-600">
-                                {formatarMoeda(String(item.subtotal))}
-                              </td>
-
-                              <td className="px-4 py-3 text-gray-600">
-                                {formatarMoeda(String(item.ivaAmount))}
                               </td>
 
                               <td className="px-4 py-3 font-bold text-[#071B2D]">
