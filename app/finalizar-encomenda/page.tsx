@@ -31,6 +31,7 @@ import {
 import { useCarrinho } from "@/app/components/carrinho/CartProvider";
 type EncomendaCriada = DadosPDFEncomenda & {
   id: string;
+  referencia: string;
   estado: string;
 };
 
@@ -325,40 +326,21 @@ const [erroPDF, setErroPDF] = useState("");
 const dadosEncomenda = dados.encomenda;
 
 setEncomenda({
+  ...dadosEncomenda,
   id: String(dadosEncomenda.id),
   referencia: String(dadosEncomenda.referencia),
-
-  customerType: dadosEncomenda.customerType,
-  cliente: dadosEncomenda.cliente,
-  empresa: dadosEncomenda.empresa,
-  nuit: dadosEncomenda.nuit,
-
-  telefone: dadosEncomenda.telefone,
-  email: dadosEncomenda.email,
-  endereco: dadosEncomenda.endereco,
-  distrito: dadosEncomenda.distrito,
-  observacoes: dadosEncomenda.observacoes,
-
   entrega: Number(dadosEncomenda.entrega),
   total: Number(dadosEncomenda.total),
-
-  estado: dadosEncomenda.estado,
-
-  produtos: dadosEncomenda.produtos.map(
-    (produto: {
-      nome: string;
-      quantidade: number;
-      preco: number;
-      total: number;
-    }) => ({
-      nome: produto.nome,
-      quantidade: produto.quantidade,
-      preco: Number(produto.preco),
-      total: Number(produto.total),
-    })
-  ),
-
-  data: dadosEncomenda.data,
+  produtos: dadosEncomenda.produtos.map((produto: {
+    nome: string;
+    quantidade: number;
+    preco: number;
+    total: number;
+  }) => ({
+    ...produto,
+    preco: Number(produto.preco),
+    total: Number(produto.total),
+  })),
 });
 
       // Remover apenas os produtos incluídos na encomenda.
