@@ -34,10 +34,6 @@ export default function ProductCard({
     itens,
   } = useCarrinho();
 
-  // ======================================================
-  // GALERIA DE IMAGENS
-  // ======================================================
-
   const galeria =
     Array.isArray(product.images) && product.images.length > 0
       ? [
@@ -59,10 +55,6 @@ export default function ProductCard({
     setImagemAtual(0);
   }, [product.id]);
 
-  // ======================================================
-  // PREÇOS
-  // ======================================================
-
   const preco = Number(product.price ?? 0);
   const precoAnterior = Number(product.oldPrice ?? 0);
 
@@ -77,10 +69,6 @@ export default function ProductCard({
       maximumFractionDigits: 2,
     });
 
-  // ======================================================
-  // DISPONIBILIDADE E CARRINHO
-  // ======================================================
-
   const disponivel = product.inStock === true;
 
   const itemNoCarrinho = itens.find(
@@ -89,10 +77,6 @@ export default function ProductCard({
 
   const quantidadeNoCarrinho =
     itemNoCarrinho?.quantidade ?? 0;
-
-  // ======================================================
-  // FUNÇÕES DO CARRINHO
-  // ======================================================
 
   const adicionarProduto = () => {
     if (!disponivel) return;
@@ -107,7 +91,6 @@ export default function ProductCard({
 
   const aumentarQuantidade = () => {
     if (!disponivel) return;
-
     adicionar(product);
   };
 
@@ -125,10 +108,6 @@ export default function ProductCard({
     );
   };
 
-  // ======================================================
-  // NAVEGAÇÃO DA GALERIA
-  // ======================================================
-
   const imagemAnterior = () => {
     setImagemAtual((atual) =>
       atual === 0 ? galeria.length - 1 : atual - 1
@@ -144,33 +123,24 @@ export default function ProductCard({
   const linkProduto =
     `/produtos/${encodeURIComponent(product.id)}`;
 
-  // ======================================================
-  // RENDERIZAÇÃO
-  // ======================================================
-
   return (
     <article
       className="
-        group flex h-[300px] min-w-0 w-full flex-col
-        overflow-hidden rounded-xl
+        group flex h-full min-w-0 w-full flex-col
+        overflow-hidden rounded-lg
         border border-gray-200 bg-white
         transition duration-300
         hover:-translate-y-1 hover:shadow-lg
-        sm:h-[310px]
-        lg:h-[290px]
+        sm:rounded-xl
       "
     >
-
-      {/* ==================================================
-          IMAGEM PRINCIPAL DO PRODUTO
-      ================================================== */}
-
+      {/* IMAGEM PRINCIPAL */}
       <div
         className="
-          relative h-[155px] min-h-[155px] shrink-0
-          overflow-hidden bg-white
-          sm:h-[165px] sm:min-h-[165px]
-          lg:h-[155px] lg:min-h-[155px]
+          relative aspect-[1.8/1] w-full
+          shrink-0 overflow-hidden bg-white
+          sm:aspect-auto sm:h-[135px]
+          lg:h-[155px]
         "
       >
         {galeria.length > 0 ? (
@@ -199,7 +169,6 @@ export default function ProductCard({
               />
             </Link>
 
-            {/* SETA ANTERIOR */}
             {galeria.length > 1 && (
               <>
                 <button
@@ -211,15 +180,14 @@ export default function ProductCard({
                     flex -translate-y-1/2
                     items-center justify-center
                     rounded-full bg-white/90
-                    p-1 text-gray-800 shadow
+                    p-0.5 text-gray-800 shadow
                     transition hover:bg-lime-400
                     sm:p-1.5
                   "
                 >
-                  <ChevronLeft size={17} />
+                  <ChevronLeft size={14} />
                 </button>
 
-                {/* SETA SEGUINTE */}
                 <button
                   type="button"
                   onClick={imagemSeguinte}
@@ -229,12 +197,12 @@ export default function ProductCard({
                     flex -translate-y-1/2
                     items-center justify-center
                     rounded-full bg-white/90
-                    p-1 text-gray-800 shadow
+                    p-0.5 text-gray-800 shadow
                     transition hover:bg-lime-400
                     sm:p-1.5
                   "
                 >
-                  <ChevronRight size={17} />
+                  <ChevronRight size={14} />
                 </button>
               </>
             )}
@@ -244,7 +212,8 @@ export default function ProductCard({
             href={linkProduto}
             className="
               flex h-full items-center justify-center
-              px-2 text-center text-xs text-gray-400
+              px-1 text-center text-[9px] text-gray-400
+              sm:text-xs
             "
           >
             Sem imagem disponível
@@ -257,9 +226,10 @@ export default function ProductCard({
             className="
               absolute left-1 top-1 z-20
               rounded-full bg-red-600
-              px-2 py-1 text-[9px]
+              px-1 py-0.5 text-[7px]
               font-bold text-white
-              sm:left-2 sm:top-2 sm:text-[10px]
+              sm:left-2 sm:top-2 sm:px-2
+              sm:py-1 sm:text-[10px]
             "
           >
             Promoção
@@ -271,50 +241,46 @@ export default function ProductCard({
           <span
             className="
               absolute right-1 top-1 z-20
-              flex max-w-[75%] items-center gap-1
+              flex max-w-[75%] items-center gap-0.5
               truncate rounded-full bg-green-600
-              px-2 py-1 text-[9px]
+              px-1 py-0.5 text-[7px]
               font-bold text-white
-              sm:right-2 sm:top-2 sm:text-[10px]
+              sm:right-2 sm:top-2 sm:gap-1
+              sm:px-2 sm:py-1 sm:text-[10px]
             "
           >
-            <Check size={11} />
+            <Check size={9} />
             {quantidadeNoCarrinho} no carrinho
           </span>
         )}
       </div>
 
-      {/* ==================================================
-          INFORMAÇÕES DO PRODUTO
-      ================================================== */}
-
+      {/* INFORMAÇÕES DO PRODUTO */}
       <div
         className="
-          flex min-h-0 min-w-0 flex-1 flex-col
-          p-1.5 sm:p-2
+          flex min-w-0 flex-1 flex-col
+          gap-0 px-1 pb-1 pt-0
+          sm:gap-0.5 sm:px-2 sm:pb-2
         "
       >
-
         {/* CATEGORIA */}
         <p
           className="
-            h-4 shrink-0 truncate
-            text-[10px] font-semibold
-            text-cyan-600 sm:text-[11px]
+            truncate text-[8px] font-semibold
+            leading-3 text-cyan-600
+            sm:text-[11px] sm:leading-4
           "
         >
           {product.category}
         </p>
 
-        {/* NOME DO PRODUTO */}
+        {/* NOME */}
         <Link
           href={linkProduto}
           className="
-            mt-0.5 h-9 shrink-0 min-w-0
-            overflow-hidden text-[11px]
-            font-bold leading-[17px]
+            min-w-0 overflow-hidden
+            text-[9px] font-bold leading-[13px]
             text-gray-800 hover:text-cyan-600
-            sm:mt-1 sm:h-10
             sm:text-sm sm:leading-5
           "
         >
@@ -323,15 +289,13 @@ export default function ProductCard({
           </h3>
         </Link>
 
-        {/* ==================================================
-            PREÇOS — SEM IVA OU IMPOSTOS
-        ================================================== */}
-
-        <div className="mt-1 min-w-0 shrink-0">
+        {/* PREÇOS */}
+        <div className="min-w-0">
           <p
             className="
-              truncate text-xs font-bold
-              text-[#071B2D] sm:text-sm
+              truncate text-[10px] font-bold
+              leading-4 text-[#071B2D]
+              sm:text-sm sm:leading-5
             "
           >
             {formatarPreco(preco)} MT
@@ -340,9 +304,9 @@ export default function ProductCard({
           {temPrecoAnterior && (
             <p
               className="
-                truncate text-[9px]
+                truncate text-[7px] leading-3
                 text-gray-400 line-through
-                sm:text-[10px]
+                sm:text-[10px] sm:leading-4
               "
             >
               {formatarPreco(precoAnterior)} MT
@@ -350,18 +314,13 @@ export default function ProductCard({
           )}
         </div>
 
-        {/* ==================================================
-            CONTROLO DO CARRINHO
-        ================================================== */}
-
+        {/* CONTROLO DO CARRINHO */}
         <div
           className="
-            mt-auto h-8 min-h-8 w-full shrink-0
-            sm:h-9 sm:min-h-9
+            mt-auto h-7 min-h-7 w-full shrink-0
+            pt-1 sm:h-9 sm:min-h-9
           "
         >
-
-          {/* INDISPONÍVEL */}
           {!disponivel ? (
             <button
               type="button"
@@ -369,46 +328,42 @@ export default function ProductCard({
               className="
                 flex h-full w-full
                 items-center justify-center
-                rounded-lg bg-gray-400
-                text-[10px] font-semibold
+                rounded-md bg-gray-400
+                text-[8px] font-semibold
                 text-white opacity-80
-                sm:text-[11px]
+                sm:rounded-lg sm:text-[11px]
               "
             >
               Indisponível
             </button>
           ) : quantidadeNoCarrinho === 0 ? (
-
-            /* ADICIONAR AO CARRINHO */
             <button
               type="button"
               onClick={adicionarProduto}
               className="
                 flex h-full w-full
-                items-center justify-center gap-1
-                rounded-lg bg-[#071B2D]
-                text-[10px] font-semibold
+                items-center justify-center gap-0.5
+                rounded-md bg-[#071B2D]
+                text-[8px] font-semibold
                 text-white transition
                 hover:bg-cyan-600
-                sm:gap-2 sm:text-[11px]
+                sm:rounded-lg sm:gap-2
+                sm:text-[11px]
               "
             >
-              <Plus size={14} />
+              <Plus size={12} />
               Adicionar
             </button>
           ) : (
-
-            /* ALTERAR QUANTIDADE */
             <div
               className="
                 flex h-full w-full
                 items-center justify-between
-                overflow-hidden rounded-lg
+                overflow-hidden rounded-md
                 border border-[#071B2D]
+                sm:rounded-lg
               "
             >
-
-              {/* DIMINUIR */}
               <button
                 type="button"
                 onClick={diminuirQuantidade}
@@ -421,22 +376,21 @@ export default function ProductCard({
                   active:bg-gray-300
                 "
               >
-                <Minus size={14} />
+                <Minus size={12} />
               </button>
 
-              {/* QUANTIDADE */}
               <span
                 className="
                   flex h-full flex-1
                   items-center justify-center
-                  text-xs font-bold
-                  text-[#071B2D] sm:text-sm
+                  text-[10px] font-bold
+                  text-[#071B2D]
+                  sm:text-sm
                 "
               >
                 {quantidadeNoCarrinho}
               </span>
 
-              {/* AUMENTAR */}
               <button
                 type="button"
                 onClick={aumentarQuantidade}
@@ -449,9 +403,8 @@ export default function ProductCard({
                   active:bg-cyan-700
                 "
               >
-                <Plus size={14} />
+                <Plus size={12} />
               </button>
-
             </div>
           )}
         </div>
