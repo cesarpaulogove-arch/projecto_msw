@@ -34,6 +34,10 @@ export default function ProductCard({
     itens,
   } = useCarrinho();
 
+  // ==========================================
+  // GALERIA DE IMAGENS
+  // ==========================================
+
   const galeria =
     Array.isArray(product.images) && product.images.length > 0
       ? [
@@ -55,6 +59,15 @@ export default function ProductCard({
     setImagemAtual(0);
   }, [product.id]);
 
+  const indiceImagem =
+    galeria.length > 0
+      ? imagemAtual % galeria.length
+      : 0;
+
+  // ==========================================
+  // PREÇOS
+  // ==========================================
+
   const preco = Number(product.price ?? 0);
   const precoAnterior = Number(product.oldPrice ?? 0);
 
@@ -69,7 +82,15 @@ export default function ProductCard({
       maximumFractionDigits: 2,
     });
 
+  // ==========================================
+  // DISPONIBILIDADE
+  // ==========================================
+
   const disponivel = product.inStock === true;
+
+  // ==========================================
+  // VERIFICAR PRODUTO NO CARRINHO
+  // ==========================================
 
   const itemNoCarrinho = itens.find(
     (item) => item.produto.id === product.id
@@ -78,21 +99,34 @@ export default function ProductCard({
   const quantidadeNoCarrinho =
     itemNoCarrinho?.quantidade ?? 0;
 
+  // ==========================================
+  // ADICIONAR PRODUTO
+  // ==========================================
+
   const adicionarProduto = () => {
     if (!disponivel) return;
 
-    if (onAdd) {
-      onAdd(product);
-      return;
-    }
-
+    // O CarrinhoProvider é a fonte principal
+    // de gestão dos produtos do carrinho.
     adicionar(product);
+
+    // Notificar o componente pai, se necessário.
+    onAdd?.(product);
   };
+
+  // ==========================================
+  // AUMENTAR QUANTIDADE
+  // ==========================================
 
   const aumentarQuantidade = () => {
     if (!disponivel) return;
+
     adicionar(product);
   };
+
+  // ==========================================
+  // DIMINUIR QUANTIDADE
+  // ==========================================
 
   const diminuirQuantidade = () => {
     if (quantidadeNoCarrinho <= 0) return;
@@ -108,20 +142,40 @@ export default function ProductCard({
     );
   };
 
+  // ==========================================
+  // NAVEGAR NA GALERIA
+  // ==========================================
+
   const imagemAnterior = () => {
+    if (galeria.length <= 1) return;
+
     setImagemAtual((atual) =>
-      atual === 0 ? galeria.length - 1 : atual - 1
+      atual === 0
+        ? galeria.length - 1
+        : atual - 1
     );
   };
 
   const imagemSeguinte = () => {
+    if (galeria.length <= 1) return;
+
     setImagemAtual((atual) =>
-      atual === galeria.length - 1 ? 0 : atual + 1
+      atual >= galeria.length - 1
+        ? 0
+        : atual + 1
     );
   };
 
+  // ==========================================
+  // LINK DO PRODUTO
+  // ==========================================
+
   const linkProduto =
     `/produtos/${encodeURIComponent(product.id)}`;
+
+  // ==========================================
+  // RENDERIZAÇÃO
+  // ==========================================
 
   return (
     <article
@@ -151,8 +205,8 @@ export default function ProductCard({
               className="absolute inset-0"
             >
               <Image
-                key={galeria[imagemAtual]}
-                src={galeria[imagemAtual]}
+                key={galeria[indiceImagem]}
+                src={galeria[indiceImagem]}
                 alt={product.name}
                 fill
                 sizes="
@@ -169,6 +223,7 @@ export default function ProductCard({
               />
             </Link>
 
+            {/* NAVEGAÇÃO DAS IMAGENS */}
             {galeria.length > 1 && (
               <>
                 <button

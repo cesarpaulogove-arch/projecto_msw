@@ -1,0 +1,7 @@
+ALTER TABLE public."Quotation"
+ADD COLUMN IF NOT EXISTS "subtotalOriginal"
+DECIMAL(12,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE public."Quotation"
+ADD COLUMN IF NOT EXISTS "discountTotal"
+DECIMAL(12,2) NOT NULL DEFAULT 0;

@@ -1,0 +1,2 @@
+ALTER TABLE "OrderItem"
+ADD COLUMN IF NOT EXISTS "originalUnitPrice" DECIMAL(12, 2);

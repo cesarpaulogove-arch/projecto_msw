@@ -5,18 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { Wrench, ArrowLeft } from "lucide-react";
 
 async function ListaServicos() {
-  const servicos = await prisma.siteContent.findMany({
-    where: {
-      type: "SERVICOS",
-      status: "PUBLICADO",
-    },
-    orderBy: [
-      { order: "asc" },
-      { publishedAt: "desc" },
-    ],
-    take: 4,
-  });
-
+const servicos = await prisma.siteContent.findMany({
+  where: {
+    type: "SERVICOS",
+    status: "PUBLICADO",
+  },
+  orderBy: [
+    { createdAt: "asc" },
+  ],
+  take: 4,
+});
   if (servicos.length === 0) {
     return (
       <div className="rounded-2xl border bg-white p-10 text-center">
@@ -35,7 +33,7 @@ async function ListaServicos() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4 items-start">
+    <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-4">
       {servicos.map((servico, index) => {
         const itens = (servico.content || "")
           .split(/\r?\n/)
@@ -44,33 +42,33 @@ async function ListaServicos() {
 
         return (
           <article
-  key={servico.id}
-  className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white transition-all duration-300 hover:border-lime-400 hover:shadow-lg"
->
-  {/* Caixa do título */}
-  <div className="flex min-h-20 items-center justify-center bg-lime-100 px-4 py-5 text-center">
-    <h2 className="text-lg font-bold leading-snug text-gray-900">
-      {servico.title}
-    </h2>
-  </div>
+            key={servico.id}
+            className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white transition-all duration-300 hover:border-lime-400 hover:shadow-lg"
+          >
+            {/* Título */}
+            <div className="flex min-h-20 items-center justify-center bg-lime-100 px-3 py-5 text-center">
+              <h2 className="text-base font-bold leading-snug text-gray-900 lg:text-sm xl:text-base">
+                {servico.title}
+              </h2>
+            </div>
 
-  {/* Descrição */}
-  <div className="p-6">
-    {servico.summary && (
-      <p className="text-sm leading-6 text-gray-500">
-        {servico.summary}
-      </p>
-    )}
+            {/* Conteúdo */}
+            <div className="flex-1 p-4 lg:p-4 xl:p-5">
+              {servico.summary && (
+                <p className="text-sm leading-6 text-gray-500">
+                  {servico.summary}
+                </p>
+              )}
 
-    {itens.length > 0 && (
-      <ul className="mt-5 list-disc space-y-3 pl-5 text-sm leading-6 text-gray-700 marker:text-lime-600">
-        {itens.map((item, i) => (
-          <li key={i}>{item}</li>
-        ))}
-      </ul>
-    )}
-  </div>
-</article>
+              {itens.length > 0 && (
+                <ul className="mt-5 list-disc space-y-3 pl-5 text-sm leading-6 text-gray-700 marker:text-lime-600">
+                  {itens.map((item, i) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </article>
         );
       })}
     </div>

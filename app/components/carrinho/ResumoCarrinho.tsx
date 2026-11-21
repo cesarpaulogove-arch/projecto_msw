@@ -31,31 +31,39 @@ export default function ResumoCarrinho({
     return valor.toLocaleString("pt-MZ", {
       style: "currency",
       currency: "MZN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     });
   }
 
   return (
     <aside className="h-fit rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      {/* CABEÇALHO */}
       <h2 className="flex items-center gap-2 text-xl font-black text-[#071B2D]">
         <ShoppingBag className="text-cyan-700" size={22} />
-        Resumo do carrinho
+        Resumo da compra
       </h2>
 
+      {/* QUANTIDADE */}
       <div className="mt-6 flex items-center justify-between text-sm text-gray-600">
         <span>Produtos</span>
+
         <span className="font-semibold text-[#071B2D]">
           {quantidadeTotal}{" "}
           {quantidadeTotal === 1 ? "unidade" : "unidades"}
         </span>
       </div>
 
+      {/* TOTAL DOS PRODUTOS */}
       <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
         <span>Total dos produtos</span>
+
         <span className="font-semibold text-[#071B2D]">
           {formatarPreco(totalProdutos)}
         </span>
       </div>
 
+      {/* ENTREGA */}
       <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
         <span className="flex items-center gap-2">
           <Truck size={16} />
@@ -69,10 +77,11 @@ export default function ResumoCarrinho({
         </span>
       </div>
 
+      {/* TOTAL FINAL */}
       <div className="mt-6 border-t border-gray-200 pt-5">
         <div className="flex items-center justify-between">
-          <span className="text-base font-bold text-[rgb(7,27,45)]">
-            {entregaConfirmada ? "Total" : "Total"}
+          <span className="text-base font-bold text-[#071B2D]">
+            Total da compra
           </span>
 
           <span className="text-2xl font-black text-cyan-700">
@@ -88,11 +97,14 @@ export default function ResumoCarrinho({
         )}
       </div>
 
+      {/* FINALIZAR COMPRA */}
       <Link
         href="/finalizar-encomenda"
         aria-disabled={bloqueado}
         onClick={(event) => {
-          if (bloqueado) event.preventDefault();
+          if (bloqueado) {
+            event.preventDefault();
+          }
         }}
         className={`mt-7 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-4 font-bold text-white transition ${
           bloqueado
@@ -104,12 +116,13 @@ export default function ResumoCarrinho({
           "A carregar..."
         ) : (
           <>
-            Finalizar encomenda
+            Finalizar compra
             <ArrowRight size={19} />
           </>
         )}
       </Link>
 
+      {/* CONTINUAR A COMPRAR */}
       <Link
         href="/"
         className="mt-3 flex w-full items-center justify-center rounded-xl border border-gray-200 px-5 py-3 text-sm font-semibold text-gray-600 transition hover:border-cyan-600 hover:text-cyan-700"
@@ -117,10 +130,11 @@ export default function ResumoCarrinho({
         Continuar a comprar
       </Link>
 
+      {/* GARANTIAS */}
       <div className="mt-6 space-y-3 border-t border-gray-100 pt-5">
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <ShieldCheck size={17} className="text-green-600" />
-          Registo seguro da encomenda
+          Registo seguro da compra
         </div>
 
         <div className="flex items-center gap-2 text-xs text-gray-500">

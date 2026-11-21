@@ -5,6 +5,7 @@ export interface ItemPDFEncomenda {
   nome: string;
   quantidade: number;
   preco: number;
+  precoOriginal?: number | null;
   total: number;
 }
 
@@ -41,7 +42,9 @@ const formatarData = (data: string | Date) =>
     timeZone: "Africa/Maputo",
   });
 
-async function carregarImagem(caminho: string): Promise<string | null> {
+async function carregarImagem(
+  caminho: string
+): Promise<string | null> {
   try {
     const resposta = await fetch(caminho);
 
@@ -52,8 +55,11 @@ async function carregarImagem(caminho: string): Promise<string | null> {
     return await new Promise((resolve, reject) => {
       const leitor = new FileReader();
 
-      leitor.onload = () => resolve(leitor.result as string);
-      leitor.onerror = () => reject(new Error("Erro ao carregar imagem"));
+      leitor.onload = () =>
+        resolve(leitor.result as string);
+
+      leitor.onerror = () =>
+        reject(new Error("Erro ao carregar imagem"));
 
       leitor.readAsDataURL(blob);
     });
@@ -76,23 +82,109 @@ export async function gerarPDFEncomenda(
   const azulEscuro: [number, number, number] = [7, 27, 45];
   const azul: [number, number, number] = [15, 75, 120];
   const cinzento: [number, number, number] = [90, 90, 90];
+  const verde: [number, number, number] = [22, 130, 75];
 
-  // Espaço reservado para o carimbo e rodapé.
-  // O conteúdo não pode ultrapassar esta posição.
+  const alturaRodape = 23;
   const limiteConteudo = alturaPagina - 65;
+
+  const larguraColuna = (larguraConteudo - 12) / 2;
+  const colunaEsquerda = margem;
+  const colunaDireita = margem + larguraColuna + 12;
 
   let y = 49;
 
-  const imagemCarimboPromise = carregarImagem("/msw_carrimbo.png");
+  const imagemCarimboPromise =
+    carregarImagem("/msw_carrimbo.png");
 
- const temEntrega =
-  typeof dados.distrito === "string" &&
-  dados.distrito.trim() !== "" &&
-  !["A COMBINAR", "N/A"].includes(
-    dados.distrito.trim().toUpperCase()
+  const temEntrega =
+    typeof dados.distrito === "string" &&
+    dados.distrito.trim() !== "" &&
+    !["A COMBINAR", "N/A"].includes(
+      dados.distrito.trim().toUpperCase()
+    );
+
+  // =====================================================
+  // CÁLCULO DOS DESCONTOS
+  // =====================================================
+
+  const calculosProdutos = dados.produtos.map((produto) => {
+    const precoOriginal =
+      typeof produto.precoOriginal === "number" &&
+      Number.isFinite(produto.precoOriginal) &&
+      produto.precoOriginal > produto.preco
+        ? produto.precoOriginal
+        : produto.preco;
+
+    const totalOriginal =
+      precoOriginal * produto.quantidade;
+
+    const totalAtual =
+      Number.isFinite(produto.total)
+        ? Math.max(0, produto.total)
+        : produto.preco * produto.quantidade;
+
+    const desconto = Math.max(
+      0,
+      totalOriginal - totalAtual
+    );
+
+    const temDesconto = desconto > 0;
+
+    const percentagem =
+      totalOriginal > 0
+        ? Math.round((desconto / totalOriginal) * 100)
+        : 0;
+
+    return {
+      ...produto,
+      precoOriginal,
+      totalOriginal,
+      totalAtual,
+      desconto,
+      temDesconto,
+      percentagem,
+    };
+  });
+
+  const subtotalOriginal = calculosProdutos.reduce(
+    (total, produto) => total + produto.totalOriginal,
+    0
   );
 
+  const subtotalAtual = calculosProdutos.reduce(
+    (total, produto) => total + produto.totalAtual,
+    0
+  );
+
+  const descontoTotal = calculosProdutos.reduce(
+    (total, produto) => total + produto.desconto,
+    0
+  );
+
+  const temDesconto = descontoTotal > 0;
+
+  const percentagemPoupada =
+    subtotalOriginal > 0
+      ? Math.round(
+          (descontoTotal / subtotalOriginal) * 100
+        )
+      : 0;
+
+  // =====================================================
+  // CUSTO DE ENTREGA E TOTAL A PAGAR
+  // =====================================================
+
+  const custoEntrega = temEntrega
+    ? Math.max(0, Number(dados.entrega) || 0)
+    : 0;
+
+  // Total dos produtos já com desconto + entrega
+  const totalPagar = subtotalAtual + custoEntrega;
+
+  // =====================================================
   // CABEÇALHO
+  // =====================================================
+
   const adicionarCabecalho = () => {
     pdf.setFillColor(...azulEscuro);
     pdf.rect(0, 0, larguraPagina, 38, "F");
@@ -100,13 +192,16 @@ export async function gerarPDFEncomenda(
     pdf.setTextColor(255, 255, 255);
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(20);
+
     pdf.text("MSW BUSINESS", margem, 17);
 
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(10);
-    pdf.text("COMPROVATIVO DE ENCOMENDA", margem, 25);
+
+    pdf.text("COMPROVATIVO DE COMPRA", margem, 25);
 
     pdf.setFontSize(9);
+
     pdf.text(
       `Referência: ${dados.orderNumber}`,
       larguraPagina - margem,
@@ -122,16 +217,19 @@ export async function gerarPDFEncomenda(
     );
 
     pdf.setTextColor(0, 0, 0);
+
     y = 49;
   };
 
-  // NOVA PÁGINA
   const adicionarNovaPagina = () => {
     pdf.addPage();
     adicionarCabecalho();
   };
 
-  // VERIFICAR ESPAÇO DISPONÍVEL
+  // =====================================================
+  // CONTROLO DO ESPAÇO
+  // =====================================================
+
   const verificarEspaco = (altura: number): boolean => {
     if (y + altura > limiteConteudo) {
       adicionarNovaPagina();
@@ -141,7 +239,10 @@ export async function gerarPDFEncomenda(
     return false;
   };
 
-  // TEXTO COM QUEBRA AUTOMÁTICA
+  // =====================================================
+  // TEXTO AUTOMÁTICO
+  // =====================================================
+
   const adicionarTexto = (
     texto: string,
     x: number,
@@ -155,42 +256,55 @@ export async function gerarPDFEncomenda(
 
     const linhas = pdf.splitTextToSize(texto, largura);
 
+    const altura = linhas.length * 4 + 1.5;
+
+    verificarEspaco(altura);
+
     pdf.text(linhas, x, y);
 
-    y += linhas.length * 4 + 1.5;
+    y += altura;
   };
 
-  // LINHA DIVISÓRIA
   const adicionarLinha = () => {
+    verificarEspaco(7);
+
     pdf.setDrawColor(210, 210, 210);
-    pdf.line(margem, y, larguraPagina - margem, y);
+
+    pdf.line(
+      margem,
+      y,
+      larguraPagina - margem,
+      y
+    );
+
     y += 6;
   };
 
   adicionarCabecalho();
 
   // =====================================================
-  // INFORMAÇÕES DO CLIENTE E DO ESTABELECIMENTO
+  // INFORMAÇÕES DO CLIENTE E DA LOJA
   // =====================================================
 
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(12);
   pdf.setTextColor(...azul);
+
   pdf.text("INFORMAÇÕES", margem, y);
 
   y += 8;
 
-  const larguraColuna = (larguraConteudo - 12) / 2;
-  const colunaEsquerda = margem;
-  const colunaDireita = margem + larguraColuna + 12;
-
   const inicioColunas = y;
 
-  // TÍTULO CLIENTE
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(9);
   pdf.setTextColor(...azul);
-  pdf.text("DADOS DO CLIENTE", colunaEsquerda, y);
+
+  pdf.text(
+    "DADOS DO CLIENTE",
+    colunaEsquerda,
+    y
+  );
 
   let yCliente = y + 6;
 
@@ -217,17 +331,27 @@ export async function gerarPDFEncomenda(
   pdf.setTextColor(0, 0, 0);
 
   for (const texto of dadosCliente) {
-    const linhas = pdf.splitTextToSize(texto, larguraColuna);
+    const linhas = pdf.splitTextToSize(
+      texto,
+      larguraColuna
+    );
 
     pdf.text(linhas, colunaEsquerda, yCliente);
+
     yCliente += linhas.length * 4 + 1.5;
   }
 
-  // TÍTULO DA LOJA
+  // DADOS DA LOJA
+
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(9);
   pdf.setTextColor(...azul);
-  pdf.text("MSW BUSINESS", colunaDireita, y);
+
+  pdf.text(
+    "MSW BUSINESS",
+    colunaDireita,
+    y
+  );
 
   let yLoja = y + 6;
 
@@ -243,16 +367,20 @@ export async function gerarPDFEncomenda(
   pdf.setTextColor(0, 0, 0);
 
   for (const texto of dadosLoja) {
-    const linhas = pdf.splitTextToSize(texto, larguraColuna);
+    const linhas = pdf.splitTextToSize(
+      texto,
+      larguraColuna
+    );
 
     pdf.text(linhas, colunaDireita, yLoja);
+
     yLoja += linhas.length * 4 + 1.5;
   }
 
-  // SEPARADOR DINÂMICO
   const fimColunas = Math.max(yCliente, yLoja);
 
   pdf.setDrawColor(210, 210, 210);
+
   pdf.line(
     margem + larguraColuna + 6,
     inicioColunas - 2,
@@ -265,107 +393,324 @@ export async function gerarPDFEncomenda(
   adicionarLinha();
 
   // =====================================================
-  // PRODUTOS ENCOMENDADOS
+  // PRODUTOS DA COMPRA
   // =====================================================
 
-  verificarEspaco(17);
+  const tituloProdutos = () => {
+    verificarEspaco(17);
 
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(11);
-  pdf.setTextColor(...azul);
-  pdf.text("PRODUTOS ENCOMENDADOS", margem, y);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(11);
+    pdf.setTextColor(...azul);
 
-  y += 8;
+    pdf.text(
+      "PRODUTOS DA COMPRA",
+      margem,
+      y
+    );
 
+    y += 8;
+  };
+
+  // Colunas da tabela
   const colunaProduto = margem + 2;
-  const colunaQuantidade = 112;
-  const colunaPreco = 140;
+  const colunaQuantidade = 105;
+  const colunaOriginal = 125;
+  const colunaPreco = 158;
   const colunaTotal = larguraPagina - margem - 2;
 
   const cabecalhoTabela = () => {
+    verificarEspaco(12);
+
     pdf.setFillColor(...azulEscuro);
-    pdf.rect(margem, y - 4.5, larguraConteudo, 8, "F");
+
+    pdf.rect(
+      margem,
+      y - 4.5,
+      larguraConteudo,
+      8,
+      "F"
+    );
 
     pdf.setTextColor(255, 255, 255);
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8);
+    pdf.setFontSize(7);
 
     pdf.text("Produto", colunaProduto, y);
     pdf.text("Qtd.", colunaQuantidade, y);
-    pdf.text("Preço", colunaPreco, y);
-    pdf.text("Total", colunaTotal, y, {
-      align: "right",
-    });
+    pdf.text("Normal", colunaOriginal, y);
+
+    pdf.text(
+      "Actual",
+      colunaPreco,
+      y
+    );
+
+    pdf.text(
+      "Total",
+      colunaTotal,
+      y,
+      { align: "right" }
+    );
 
     y += 7;
+
     pdf.setTextColor(0, 0, 0);
   };
 
+  tituloProdutos();
   cabecalhoTabela();
 
-  for (const produto of dados.produtos) {
+  for (const produto of calculosProdutos) {
     const nomeLinhas = pdf.splitTextToSize(
       produto.nome,
       colunaQuantidade - colunaProduto - 8
     );
 
-    const alturaLinha = Math.max(8, nomeLinhas.length * 4 + 2);
+    const alturaLinha = Math.max(
+      produto.temDesconto ? 11 : 8,
+      nomeLinhas.length * 4 + 2
+    );
 
-    const mudouPagina = verificarEspaco(alturaLinha + 3);
+    if (y + alturaLinha + 3 > limiteConteudo) {
+      adicionarNovaPagina();
 
-    if (mudouPagina) {
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(11);
-      pdf.setTextColor(...azul);
-      pdf.text("PRODUTOS ENCOMENDADOS", margem, y);
-
-      y += 8;
+      tituloProdutos();
       cabecalhoTabela();
     }
 
     pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
+    pdf.setFontSize(7);
     pdf.setTextColor(0, 0, 0);
 
     pdf.text(nomeLinhas, colunaProduto, y);
-    pdf.text(String(produto.quantidade), colunaQuantidade, y);
-    pdf.text(formatarPreco(produto.preco), colunaPreco, y);
-    pdf.text(formatarPreco(produto.total), colunaTotal, y, {
-      align: "right",
-    });
+
+    pdf.text(
+      String(produto.quantidade),
+      colunaQuantidade,
+      y
+    );
+
+    // PREÇO ORIGINAL
+
+    pdf.setTextColor(
+      produto.temDesconto ? 120 : 0,
+      produto.temDesconto ? 120 : 0,
+      produto.temDesconto ? 120 : 0
+    );
+
+    pdf.text(
+      formatarPreco(produto.precoOriginal),
+      colunaOriginal,
+      y,
+      { align: "right" }
+    );
+
+    // PREÇO ACTUAL
+
+    if (produto.temDesconto) {
+      pdf.setTextColor(...verde);
+    } else {
+      pdf.setTextColor(0, 0, 0);
+    }
+
+    pdf.text(
+      formatarPreco(produto.preco),
+      colunaPreco,
+      y,
+      { align: "right" }
+    );
+
+    // TOTAL EFECTIVO DA LINHA
+
+    pdf.setTextColor(0, 0, 0);
+
+    pdf.text(
+      formatarPreco(produto.totalAtual),
+      colunaTotal,
+      y,
+      { align: "right" }
+    );
+
+    // DESCONTO POR PRODUTO
+
+    if (produto.temDesconto) {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(6);
+      pdf.setTextColor(...verde);
+
+      pdf.text(
+        `Desconto: ${formatarPreco(produto.desconto)} (${produto.percentagem}%)`,
+        colunaProduto,
+        y + 5
+      );
+    }
 
     y += alturaLinha;
 
     pdf.setDrawColor(225, 225, 225);
-    pdf.line(margem, y, larguraPagina - margem, y);
+
+    pdf.line(
+      margem,
+      y,
+      larguraPagina - margem,
+      y
+    );
 
     y += 3;
   }
 
   // =====================================================
-  // TOTAL DA ENCOMENDA
+  // RESUMO FINANCEIRO DA COMPRA
   // =====================================================
 
-  verificarEspaco(21);
+  const alturaResumo =
+    31 +
+    7 * (
+      (temDesconto ? 1 : 0) +
+      (temEntrega ? 1 : 0)
+    );
+
+  y += 3;
+
+  verificarEspaco(alturaResumo + 5);
+
+  // Fundo do resumo
+
+  pdf.setFillColor(240, 244, 248);
+
+  pdf.roundedRect(
+    margem,
+    y - 5,
+    larguraConteudo,
+    alturaResumo,
+    2,
+    2,
+    "F"
+  );
+
+  // 1. Valor original
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9);
+  pdf.setTextColor(...cinzento);
+
+  pdf.text(
+    "Valor dos produtos sem desconto:",
+    margem + 4,
+    y
+  );
+
+  pdf.text(
+    formatarPreco(subtotalOriginal),
+    larguraPagina - margem - 4,
+    y,
+    { align: "right" }
+  );
+
+  y += 7;
+
+  // 2. Desconto aplicado
+
+  if (temDesconto) {
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.setTextColor(...verde);
+
+    pdf.text(
+      "Desconto aplicado:",
+      margem + 4,
+      y
+    );
+
+    pdf.text(
+      `- ${formatarPreco(descontoTotal)}`,
+      larguraPagina - margem - 4,
+      y,
+      { align: "right" }
+    );
+
+    y += 7;
+  }
+
+  // 3. Valor dos produtos com desconto
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(9);
+  pdf.setTextColor(...azul);
+
+  pdf.text(
+    "Valor dos produtos com desconto:",
+    margem + 4,
+    y
+  );
+
+  pdf.text(
+    formatarPreco(subtotalAtual),
+    larguraPagina - margem - 4,
+    y,
+    { align: "right" }
+  );
+
+  y += 7;
+
+  // 4. Custo de entrega
+
+  if (temEntrega) {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(...cinzento);
+
+    pdf.text(
+      "Custo de entrega:",
+      margem + 4,
+      y
+    );
+
+    pdf.text(
+      formatarPreco(custoEntrega),
+      larguraPagina - margem - 4,
+      y,
+      { align: "right" }
+    );
+
+    y += 7;
+  }
+
+  // 5. Total final a pagar
 
   y += 2;
 
-  pdf.setFillColor(240, 244, 248);
-  pdf.roundedRect(margem, y - 4, larguraConteudo, 15, 2, 2, "F");
+  pdf.setFillColor(...azulEscuro);
+
+  pdf.roundedRect(
+    margem + 2,
+    y - 4,
+    larguraConteudo - 4,
+    14,
+    2,
+    2,
+    "F"
+  );
 
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(11);
-  pdf.setTextColor(...azulEscuro);
+  pdf.setTextColor(255, 255, 255);
 
-  pdf.text("TOTAL DA ENCOMENDA", margem + 4, y + 5);
   pdf.text(
-    formatarPreco(dados.total),
-    larguraPagina - margem - 4,
+    "TOTAL A PAGAR",
+    margem + 6,
+    y + 5
+  );
+
+  pdf.text(
+    formatarPreco(totalPagar),
+    larguraPagina - margem - 6,
     y + 5,
     { align: "right" }
   );
 
-  y += 17;
+  y += 18;
 
   // =====================================================
   // INFORMAÇÃO DE ENTREGA OU LEVANTAMENTO
@@ -388,61 +733,56 @@ export async function gerarPDFEncomenda(
   y += 6;
 
   const textoEntrega = temEntrega
-    ? `A encomenda será entregue na zona ${dados.distrito}. Custo de entrega: ${formatarPreco(dados.entrega)}.`
-    : "Caso não pretenda o serviço de entrega, poderá deslocar-se ao nosso estabelecimento para levantar a sua encomenda. Para mais informações, contacte-nos através do WhatsApp 864 018 233.";
+    ? `A compra será entregue na zona ${dados.distrito}. Custo de entrega: ${formatarPreco(custoEntrega)}.`
+    : "Caso não pretenda o serviço de entrega, poderá deslocar-se ao nosso estabelecimento para levantar a sua compra. Para mais informações, contacte-nos através do WhatsApp 864 018 233.";
 
-  adicionarTexto(textoEntrega, margem, larguraConteudo, 8);
+  adicionarTexto(
+    textoEntrega,
+    margem,
+    larguraConteudo,
+    8
+  );
 
   // =====================================================
   // OBSERVAÇÕES
   // =====================================================
 
   if (dados.observacoes?.trim()) {
-    verificarEspaco(15);
+    verificarEspaco(12);
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(9);
     pdf.setTextColor(...azulEscuro);
+
     pdf.text("OBSERVAÇÕES", margem, y);
 
     y += 6;
 
-    const observacoes = pdf.splitTextToSize(
-      dados.observacoes,
-      larguraConteudo
+    adicionarTexto(
+      dados.observacoes.trim(),
+      margem,
+      larguraConteudo,
+      8
     );
-
-    verificarEspaco(observacoes.length * 4 + 4);
-
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(observacoes, margem, y);
-
-    y += observacoes.length * 4 + 4;
   }
 
   // =====================================================
   // MENSAGEM FINAL
   // =====================================================
 
-  verificarEspaco(12);
-
   const mensagemFinal =
-    "Agradecemos a preferência. A nossa equipa entrará em contacto para confirmar os detalhes da encomenda.";
+    "Agradecemos a preferência. A nossa equipa entrará em contacto para confirmar os detalhes da compra.";
 
-  const linhasMensagem = pdf.splitTextToSize(
+  adicionarTexto(
     mensagemFinal,
-    larguraConteudo
+    margem,
+    larguraConteudo,
+    8,
+    cinzento
   );
 
-  pdf.setFont("helvetica", "italic");
-  pdf.setFontSize(8);
-  pdf.setTextColor(...cinzento);
-  pdf.text(linhasMensagem, margem, y);
-
   // =====================================================
-  // CARIMBO NO FINAL DA ÚLTIMA PÁGINA
+  // CARIMBO NA ÚLTIMA PÁGINA
   // =====================================================
 
   const imagemCarimbo = await imagemCarimboPromise;
@@ -469,15 +809,20 @@ export async function gerarPDFEncomenda(
 
   const totalPaginas = pdf.getNumberOfPages();
 
-  for (let pagina = 1; pagina <= totalPaginas; pagina++) {
+  for (
+    let pagina = 1;
+    pagina <= totalPaginas;
+    pagina++
+  ) {
     pdf.setPage(pagina);
 
     pdf.setDrawColor(210, 210, 210);
+
     pdf.line(
       margem,
-      alturaPagina - 23,
+      alturaPagina - alturaRodape,
       larguraPagina - margem,
-      alturaPagina - 23
+      alturaPagina - alturaRodape
     );
 
     pdf.setFont("helvetica", "bold");
@@ -510,5 +855,11 @@ export async function gerarPDFEncomenda(
     );
   }
 
-  pdf.save(`Encomenda-${dados.orderNumber}.pdf`);
+  // =====================================================
+  // GUARDAR PDF
+  // =====================================================
+
+  pdf.save(
+    `Compra-${dados.orderNumber}.pdf`
+  );
 }

@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getClientSession } from "@/lib/client-session";
 
 const ASSUNTOS_VALIDOS = [
   "Informações sobre produtos",
@@ -11,36 +12,65 @@ const ASSUNTOS_VALIDOS = [
   "Outros",
 ];
 
+// Verifica se existe uma sessão de cliente activa
+export async function GET() {
+  try {
+    const session = await getClientSession();
+
+    if (!session) {
+      return NextResponse.json(
+        { authenticated: false },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json({
+      authenticated: true,
+    });
+  } catch (error) {
+    console.error("Erro ao verificar sessão de contacto:", error);
+
+    return NextResponse.json(
+      { error: "Não foi possível verificar a sessão." },
+      { status: 500 }
+    );
+  }
+}
+
+// Envia uma mensagem apenas para clientes autenticados
 export async function POST(request: NextRequest) {
   try {
+    const session = await getClientSession();
+
+    if (!session) {
+      return NextResponse.json(
+        {
+          error: "Inicie sessão na sua conta antes de enviar uma mensagem.",
+          authenticated: false,
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const subject = typeof body.subject === "string" ? body.subject.trim() : "";
-    const message = typeof body.message === "string" ? body.message.trim() : "";
+    // Apenas estes campos são recebidos do formulário
+    const subject =
+      typeof body.subject === "string" ? body.subject.trim() : "";
 
-    if (!name || !email || !subject || !message) {
+    const message =
+      typeof body.message === "string" ? body.message.trim() : "";
+
+    if (!subject || !message) {
       return NextResponse.json(
-        { error: "Preencha todos os campos obrigatórios." },
+        { error: "Preencha o assunto e a mensagem." },
         { status: 400 }
       );
     }
 
-    if (name.length > 100 || email.length > 254 || phone.length > 30 ||
-        subject.length > 100 || message.length > 3000) {
+    if (subject.length > 100 || message.length > 3000) {
       return NextResponse.json(
         { error: "Um ou mais campos ultrapassam o limite permitido." },
-        { status: 400 }
-      );
-    }
-
-    const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-    if (!emailValido) {
-      return NextResponse.json(
-        { error: "Introduza um endereço de email válido." },
         { status: 400 }
       );
     }
@@ -59,11 +89,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Os dados pessoais vêm sempre da conta autenticada
+    const cliente = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        name: true,
+        email: true,
+        phone: true,
+        active: true,
+        role: true,
+      },
+    });
+
+    if (
+      !cliente ||
+      !cliente.active ||
+      cliente.role !== "CLIENTE"
+    ) {
+      return NextResponse.json(
+        { error: "A sua conta não está autorizada a enviar mensagens." },
+        { status: 403 }
+      );
+    }
+
     const contacto = await prisma.contactMessage.create({
       data: {
-        name,
-        email,
-        phone: phone || null,
+        name: cliente.name,
+        email: cliente.email ?? "",
+        phone: cliente.phone,
         subject,
         message,
       },

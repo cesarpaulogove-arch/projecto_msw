@@ -26,11 +26,14 @@ export default function CartItem({
     valor.toLocaleString("pt-MZ", {
       style: "currency",
       currency: "MZN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     });
 
   return (
     <article className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:flex-row sm:items-center">
-      {/* Imagem */}
+
+      {/* IMAGEM DO PRODUTO */}
       <div className="relative h-28 w-full shrink-0 overflow-hidden rounded-xl bg-gray-50 sm:h-24 sm:w-24">
         {produto.image ? (
           <Image
@@ -39,6 +42,7 @@ export default function CartItem({
             fill
             sizes="(max-width: 640px) 100vw, 96px"
             className="object-contain p-2"
+            unoptimized
           />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-gray-400">
@@ -47,7 +51,7 @@ export default function CartItem({
         )}
       </div>
 
-      {/* Informações */}
+      {/* INFORMAÇÕES DO PRODUTO */}
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">
           {produto.category}
@@ -57,6 +61,7 @@ export default function CartItem({
           {produto.name}
         </h3>
 
+        {/* PREÇO */}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="font-bold text-cyan-700">
             {formatarPreco(produto.price)}
@@ -70,7 +75,7 @@ export default function CartItem({
             )}
         </div>
 
-        {/* Disponibilidade */}
+        {/* DISPONIBILIDADE */}
         <div className="mt-2">
           {disponivel ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-700">
@@ -86,9 +91,12 @@ export default function CartItem({
         </div>
       </div>
 
-      {/* Quantidade e remoção */}
+      {/* QUANTIDADE E REMOÇÃO */}
       <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
+
+        {/* CONTROLO DA QUANTIDADE */}
         <div className="flex items-center gap-2 rounded-xl border border-gray-200 p-1">
+
           <button
             type="button"
             onClick={() =>
@@ -118,9 +126,14 @@ export default function CartItem({
           </button>
         </div>
 
+        {/* TOTAL E REMOVER */}
         <div className="flex items-center gap-4">
+
           <div className="text-right">
-            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-xs text-gray-500">
+              Total
+            </p>
+
             <p className="font-black text-[#071B2D]">
               {formatarPreco(total)}
             </p>
@@ -131,10 +144,11 @@ export default function CartItem({
             onClick={() => remover(produto.id)}
             aria-label={`Remover ${produto.name} do carrinho`}
             title="Remover produto"
-            className="rounded-xl p-2.5 text-red-500 transition hover:bg-red-50"
+            className="rounded-xl p-2.5 text-red-500 transition hover:bg-red-50 hover:text-red-700"
           >
             <Trash2 size={19} />
           </button>
+
         </div>
       </div>
     </article>

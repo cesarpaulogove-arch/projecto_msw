@@ -5,32 +5,51 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHmac, timingSafeEqual } from "crypto";
 
-const COOKIE_NAME = "msw_gestor_session";
+const COOKIE_NAME = "msw_admin_session";
+
+const ADMIN_SESSION_DURATION = 8 * 60 * 60;
 
 interface SessaoGestor {
   email: string;
+  expiresAt: number;
   role: "GESTOR";
-  exp: number;
+}
+
+function getSecret(): string | null {
+  const secret = process.env.AUTH_SECRET;
+
+  if (!secret || secret.length < 32) {
+    return null;
+  }
+
+  return secret;
 }
 
 function compararAssinaturas(
-  assinaturaRecebida: string,
-  assinaturaEsperada: string
+  recebida: string,
+  esperada: string
 ): boolean {
-  const a = Buffer.from(assinaturaRecebida, "base64url");
-  const b = Buffer.from(assinaturaEsperada, "base64url");
+  try {
+    const a = Buffer.from(recebida, "hex");
+    const b = Buffer.from(esperada, "hex");
 
-  if (a.length !== b.length) {
+    if (a.length !== b.length || a.length === 0) {
+      return false;
+    }
+
+    return timingSafeEqual(a, b);
+  } catch {
     return false;
   }
-
-  return timingSafeEqual(a, b);
 }
 
 function validarToken(token: string): SessaoGestor | null {
   try {
-    const secret = process.env.AUTH_SECRET;
-    const gestorEmail = process.env.GESTOR_EMAIL?.trim().toLowerCase();
+    const secret = getSecret();
+
+    const gestorEmail = process.env.GESTOR_EMAIL
+      ?.trim()
+      .toLowerCase();
 
     if (!secret || !gestorEmail) {
       return null;
@@ -50,9 +69,12 @@ function validarToken(token: string): SessaoGestor | null {
 
     const assinaturaEsperada = createHmac("sha256", secret)
       .update(payload)
-      .digest("base64url");
+      .digest("hex");
 
-    if (!compararAssinaturas(assinatura, assinaturaEsperada)) {
+    if (!compararAssinaturas(
+      assinatura,
+      assinaturaEsperada
+    )) {
       return null;
     }
 
@@ -62,25 +84,25 @@ function validarToken(token: string): SessaoGestor | null {
 
     if (
       typeof dados.email !== "string" ||
-      dados.role !== "GESTOR" ||
-      typeof dados.exp !== "number"
+      typeof dados.expiresAt !== "number"
     ) {
       return null;
     }
 
-    if (dados.exp <= Date.now()) {
+    if (dados.expiresAt <= Date.now()) {
       return null;
     }
 
-    if (dados.email.toLowerCase() !== gestorEmail) {
+    if (dados.email.trim().toLowerCase() !== gestorEmail) {
       return null;
     }
 
     return {
-      email: dados.email,
+      email: gestorEmail,
+      expiresAt: dados.expiresAt,
       role: "GESTOR",
-      exp: dados.exp,
     };
+
   } catch {
     return null;
   }
@@ -88,10 +110,10 @@ function validarToken(token: string): SessaoGestor | null {
 
 /**
  * Verifica a sessão do gestor.
- * Retorna os dados da sessão ou null.
  */
 export async function verificarSessaoGestor(): Promise<SessaoGestor | null> {
   const cookieStore = await cookies();
+
   const token = cookieStore.get(COOKIE_NAME)?.value;
 
   if (!token) {
@@ -103,7 +125,6 @@ export async function verificarSessaoGestor(): Promise<SessaoGestor | null> {
 
 /**
  * Exige uma sessão válida de gestor.
- * Redireciona para o login se não estiver autenticado.
  */
 export async function exigirGestor(): Promise<SessaoGestor> {
   const sessao = await verificarSessaoGestor();
@@ -116,9 +137,8 @@ export async function exigirGestor(): Promise<SessaoGestor> {
 }
 
 /**
- * Verifica se o utilizador tem uma sessão válida de gestor.
+ * Verifica se existe uma sessão válida.
  */
 export async function gestorAutenticado(): Promise<boolean> {
-  const sessao = await verificarSessaoGestor();
-  return sessao !== null;
+  return (await verificarSessaoGestor()) !== null;
 }

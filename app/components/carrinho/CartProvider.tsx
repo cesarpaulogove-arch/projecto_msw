@@ -5,9 +5,14 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+
+// ==========================================
+// TIPOS
+// ==========================================
 
 export interface ProdutoCarrinho {
   id: string;
@@ -41,9 +46,7 @@ interface ContextoCarrinho {
   ) => void;
 
   alternarSelecao: (produtoId: string) => void;
-
   selecionarTodos: (selecionado: boolean) => void;
-
   limpar: () => void;
 
   total: number;
@@ -52,83 +55,286 @@ interface ContextoCarrinho {
   totalSelecionado: number;
   quantidadeSelecionada: number;
 
+  subtotalOriginal: number;
+  descontoTotal: number;
+
   todosSelecionados: boolean;
 }
-
-// ======================================================
-// CONTEXTO
-// ======================================================
 
 const CarrinhoContext = createContext<
   ContextoCarrinho | undefined
 >(undefined);
 
 const STORAGE_KEY = "msw_carrinho";
+const QUANTIDADE_MAXIMA = 99;
 
-// ======================================================
-// VALIDAR DADOS DO LOCALSTORAGE
-// ======================================================
+type ModoCarrinho =
+  | "carregando"
+  | "local"
+  | "conta"
+  | "erro";
 
-function validarItem(item: unknown): item is ItemCarrinho {
-  if (!item || typeof item !== "object") {
-    return false;
+// ==========================================
+// PREÇOS E PROMOÇÕES
+// ==========================================
+
+export function temPromocao(
+  produto: ProdutoCarrinho
+): boolean {
+  const precoAtual = Number(produto.price);
+  const precoAntigo = Number(produto.oldPrice);
+
+  return (
+    produto.promotion === true &&
+    produto.oldPrice !== null &&
+    Number.isFinite(precoAtual) &&
+    Number.isFinite(precoAntigo) &&
+    precoAtual >= 0 &&
+    precoAntigo > precoAtual
+  );
+}
+
+export function obterPrecoOriginal(
+  produto: ProdutoCarrinho
+): number {
+  return temPromocao(produto)
+    ? produto.oldPrice!
+    : produto.price;
+}
+
+export function obterPrecoFinal(
+  produto: ProdutoCarrinho
+): number {
+  return produto.price;
+}
+
+export function obterDescontoUnitario(
+  produto: ProdutoCarrinho
+): number {
+  return temPromocao(produto)
+    ? produto.oldPrice! - produto.price
+    : 0;
+}
+
+export function obterPercentagemDesconto(
+  produto: ProdutoCarrinho
+): number {
+  const precoOriginal = obterPrecoOriginal(produto);
+
+  if (
+    !temPromocao(produto) ||
+    precoOriginal <= 0
+  ) {
+    return 0;
   }
 
-  const valor = item as Record<string, unknown>;
-  const produto = valor.produto;
+  return Math.round(
+    ((precoOriginal - produto.price) /
+      precoOriginal) *
+      100
+  );
+}
 
-  if (!produto || typeof produto !== "object") {
-    return false;
+// ==========================================
+// NORMALIZAR PRODUTO
+// ==========================================
+
+function normalizarProduto(
+  produto: unknown
+): ProdutoCarrinho | null {
+  if (
+    !produto ||
+    typeof produto !== "object" ||
+    Array.isArray(produto)
+  ) {
+    return null;
   }
 
   const p = produto as Record<string, unknown>;
 
-  const imagensValidas =
-    p.images === undefined ||
-    (
-      Array.isArray(p.images) &&
-      p.images.every(
-        (imagem) => typeof imagem === "string"
-      )
-    );
+  const price = Number(p.price);
 
-  return (
-    typeof p.id === "string" &&
-    typeof p.name === "string" &&
-    typeof p.category === "string" &&
-    typeof p.price === "number" &&
-    Number.isFinite(p.price) &&
+  if (
+    typeof p.id !== "string" ||
+    !p.id.trim() ||
+    typeof p.name !== "string" ||
+    !Number.isFinite(price) ||
+    price < 0
+  ) {
+    return null;
+  }
+
+  const oldPrice =
+    p.oldPrice === null ||
+    p.oldPrice === undefined ||
+    p.oldPrice === ""
+      ? null
+      : Number(p.oldPrice);
+
+  if (
+    oldPrice !== null &&
     (
-      p.oldPrice === null ||
-      (
-        typeof p.oldPrice === "number" &&
-        Number.isFinite(p.oldPrice)
-      )
-    ) &&
-    typeof p.image === "string" &&
-    imagensValidas &&
-    (
-      p.rating === undefined ||
-      (
-        typeof p.rating === "number" &&
-        Number.isFinite(p.rating)
-      )
-    ) &&
-    typeof p.inStock === "boolean" &&
-    typeof p.promotion === "boolean" &&
-    typeof valor.quantidade === "number" &&
-    Number.isSafeInteger(valor.quantidade) &&
-    valor.quantidade > 0 &&
-    (
-      valor.selecionado === undefined ||
-      typeof valor.selecionado === "boolean"
+      !Number.isFinite(oldPrice) ||
+      oldPrice < 0
     )
-  );
+  ) {
+    return null;
+  }
+
+  return {
+    id: p.id,
+    name: p.name,
+
+    category:
+      typeof p.category === "string"
+        ? p.category
+        : "",
+
+    price,
+    oldPrice,
+
+    image:
+      typeof p.image === "string"
+        ? p.image
+        : "",
+
+    images: Array.isArray(p.images)
+      ? p.images.filter(
+          (imagem): imagem is string =>
+            typeof imagem === "string"
+        )
+      : [],
+
+    rating:
+      p.rating !== undefined &&
+      Number.isFinite(Number(p.rating))
+        ? Number(p.rating)
+        : 0,
+
+    inStock:
+      typeof p.inStock === "boolean"
+        ? p.inStock
+        : true,
+
+    promotion: p.promotion === true,
+  };
 }
 
-// ======================================================
-// CARRINHO PROVIDER
-// ======================================================
+// ==========================================
+// NORMALIZAR CARRINHO
+// ==========================================
+
+function normalizarItens(
+  dados: unknown
+): ItemCarrinho[] {
+  if (!Array.isArray(dados)) {
+    return [];
+  }
+
+  const mapa = new Map<string, ItemCarrinho>();
+
+  for (const valor of dados) {
+    if (
+      !valor ||
+      typeof valor !== "object" ||
+      Array.isArray(valor)
+    ) {
+      continue;
+    }
+
+    const item = valor as Record<string, unknown>;
+
+    const produto = normalizarProduto(item.produto);
+
+    const quantidade = Number(item.quantidade);
+
+    if (
+      !produto ||
+      !Number.isSafeInteger(quantidade) ||
+      quantidade <= 0
+    ) {
+      continue;
+    }
+
+    const selecionado =
+      typeof item.selecionado === "boolean"
+        ? item.selecionado
+        : true;
+
+    const existente = mapa.get(produto.id);
+
+    if (existente) {
+      existente.quantidade = Math.min(
+        QUANTIDADE_MAXIMA,
+        existente.quantidade + quantidade
+      );
+
+      existente.selecionado =
+        existente.selecionado || selecionado;
+
+      // Actualizar os dados mais recentes do produto.
+      existente.produto = produto;
+    } else {
+      mapa.set(produto.id, {
+        produto,
+        quantidade: Math.min(
+          QUANTIDADE_MAXIMA,
+          quantidade
+        ),
+        selecionado,
+      });
+    }
+  }
+
+  return Array.from(mapa.values());
+}
+
+// ==========================================
+// RECUPERAR CARRINHO LOCAL
+// ==========================================
+
+function recuperarCarrinhoLocal(): ItemCarrinho[] {
+  try {
+    const dados = localStorage.getItem(STORAGE_KEY);
+
+    if (!dados) {
+      return [];
+    }
+
+    return normalizarItens(JSON.parse(dados));
+  } catch (erro) {
+    console.error(
+      "Erro ao recuperar carrinho local:",
+      erro
+    );
+
+    return [];
+  }
+}
+
+// ==========================================
+// GUARDAR CARRINHO LOCAL
+// ==========================================
+
+function guardarCarrinhoLocal(
+  itens: ItemCarrinho[]
+) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(itens)
+    );
+  } catch (erro) {
+    console.error(
+      "Erro ao guardar carrinho local:",
+      erro
+    );
+  }
+}
+
+// ==========================================
+// PROVIDER
+// ==========================================
 
 export function CarrinhoProvider({
   children,
@@ -136,110 +342,257 @@ export function CarrinhoProvider({
   children: ReactNode;
 }) {
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
-  const [carregado, setCarregado] = useState(false);
 
-  // ====================================================
-  // RECUPERAR CARRINHO
-  // ====================================================
+  const [modo, setModo] =
+    useState<ModoCarrinho>("carregando");
+
+  const [versaoSessao, setVersaoSessao] = useState(0);
+
+  const ultimaVersaoGravacao = useRef(0);
+
+  const filaGravacao = useRef<Promise<void>>(
+    Promise.resolve()
+  );
+
+  const carregamentoConcluido = useRef(false);
+
+  // ==========================================
+  // CARREGAR CARRINHO DA CONTA OU LOCAL
+  // ==========================================
 
   useEffect(() => {
-    try {
-      const dados = localStorage.getItem(STORAGE_KEY);
+    let activo = true;
 
-      if (dados) {
-        const parsed: unknown = JSON.parse(dados);
-
-        if (Array.isArray(parsed)) {
-          const validos: ItemCarrinho[] = parsed
-            .filter(validarItem)
-            .map((item) => ({
-              produto: {
-                ...item.produto,
-                rating: item.produto.rating ?? 0,
-                images: item.produto.images ?? [],
-              },
-              quantidade: item.quantidade,
-
-              // Produtos antigos ficam seleccionados.
-              selecionado:
-                typeof item.selecionado === "boolean"
-                  ? item.selecionado
-                  : true,
-            }));
-
-          setItens(validos);
-        }
-      }
-    } catch (error) {
-      console.error(
-        "Erro ao recuperar carrinho:",
-        error
-      );
+    async function carregarCarrinho() {
+      setModo("carregando");
+      carregamentoConcluido.current = false;
 
       try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // LocalStorage indisponível.
-      }
-    } finally {
-      setCarregado(true);
-    }
-  }, []);
+        const resposta = await fetch("/api/carrinho", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+        });
 
-  // ====================================================
-  // GUARDAR CARRINHO
-  // ====================================================
+        if (!activo) return;
+
+        if (resposta.status === 401) {
+          const carrinhoLocal =
+            recuperarCarrinhoLocal();
+
+          if (!activo) return;
+
+          setItens(carrinhoLocal);
+          setModo("local");
+          carregamentoConcluido.current = true;
+
+          return;
+        }
+
+        if (!resposta.ok) {
+          throw new Error(
+            `Erro ao carregar carrinho: ${resposta.status}`
+          );
+        }
+
+        const dados = await resposta.json();
+
+        if (!activo) return;
+
+        if (!Array.isArray(dados.itens)) {
+          throw new Error(
+            "Resposta inválida do servidor."
+          );
+        }
+
+        const carrinhoConta = normalizarItens(
+          dados.itens
+        );
+
+        setItens(carrinhoConta);
+        setModo("conta");
+        carregamentoConcluido.current = true;
+      } catch (erro) {
+        console.error(
+          "Erro ao carregar carrinho:",
+          erro
+        );
+
+        if (activo) {
+          setModo("erro");
+          carregamentoConcluido.current = true;
+        }
+      }
+    }
+
+    carregarCarrinho();
+
+    return () => {
+      activo = false;
+    };
+  }, [versaoSessao]);
+
+  // ==========================================
+  // DETECTAR ALTERAÇÕES NA SESSÃO
+  // ==========================================
 
   useEffect(() => {
-    if (!carregado) return;
-
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(itens)
-      );
-    } catch (error) {
-      console.error(
-        "Erro ao guardar carrinho:",
-        error
-      );
+    function actualizarSessao() {
+      ultimaVersaoGravacao.current += 1;
+      setVersaoSessao((actual) => actual + 1);
     }
-  }, [itens, carregado]);
 
-  // ====================================================
-  // ADICIONAR PRODUTO
-  // ====================================================
+    window.addEventListener(
+      "msw-auth-changed",
+      actualizarSessao
+    );
 
-  function adicionar(produto: ProdutoCarrinho) {
+    window.addEventListener(
+      "msw:auth-changed",
+      actualizarSessao
+    );
+
+    return () => {
+      window.removeEventListener(
+        "msw-auth-changed",
+        actualizarSessao
+      );
+
+      window.removeEventListener(
+        "msw:auth-changed",
+        actualizarSessao
+      );
+    };
+  }, []);
+
+  // ==========================================
+  // GUARDAR CARRINHO DOS VISITANTES
+  // ==========================================
+
+  useEffect(() => {
     if (
-      !produto.id ||
-      !Number.isFinite(produto.price) ||
-      produto.price < 0 ||
-      produto.inStock !== true
+      modo !== "local" ||
+      !carregamentoConcluido.current
     ) {
       return;
     }
 
-    const produtoNormalizado: ProdutoCarrinho = {
-      ...produto,
-      images: produto.images ?? [],
+    guardarCarrinhoLocal(itens);
+  }, [itens, modo]);
+
+  // ==========================================
+  // SINCRONIZAR CARRINHO COM A CONTA
+  // ==========================================
+
+  useEffect(() => {
+    if (
+      modo !== "conta" ||
+      !carregamentoConcluido.current
+    ) {
+      return;
+    }
+
+    const versaoActual =
+      ++ultimaVersaoGravacao.current;
+
+    const itensParaGuardar = normalizarItens(itens);
+
+    const temporizador = setTimeout(() => {
+      filaGravacao.current = filaGravacao.current
+        .catch(() => {
+          // Permitir que a fila continue.
+        })
+        .then(async () => {
+          if (
+            versaoActual !==
+            ultimaVersaoGravacao.current
+          ) {
+            return;
+          }
+
+          try {
+            const resposta = await fetch(
+              "/api/carrinho",
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                credentials: "same-origin",
+                body: JSON.stringify({
+                  itens: itensParaGuardar,
+                }),
+              }
+            );
+
+            if (!resposta.ok) {
+              const detalhe = await resposta.text();
+
+              console.error(
+                "Erro ao guardar carrinho na conta:",
+                {
+                  status: resposta.status,
+                  detalhe,
+                }
+              );
+            }
+          } catch (erro) {
+            console.error(
+              "Erro ao sincronizar carrinho:",
+              erro
+            );
+          }
+        });
+    }, 500);
+
+    return () => {
+      clearTimeout(temporizador);
     };
+  }, [itens, modo]);
+
+  // ==========================================
+  // ADICIONAR PRODUTO
+  // ==========================================
+
+  function adicionar(produto: ProdutoCarrinho) {
+    const produtoNormalizado =
+      normalizarProduto(produto);
+
+    if (
+      !produtoNormalizado ||
+      !produtoNormalizado.inStock
+    ) {
+      console.error(
+        "Produto inválido ou sem stock:",
+        produto
+      );
+
+      return;
+    }
 
     setItens((atuais) => {
       const existente = atuais.find(
-        (item) => item.produto.id === produto.id
+        (item) =>
+          item.produto.id === produtoNormalizado.id
       );
 
       if (existente) {
-        return atuais.map((item) =>
-          item.produto.id === produto.id
-            ? {
-                ...item,
-                produto: produtoNormalizado,
-                quantidade: item.quantidade + 1,
-              }
-            : item
-        );
+        return atuais.map((item) => {
+          if (
+            item.produto.id !== produtoNormalizado.id
+          ) {
+            return item;
+          }
+
+          return {
+            ...item,
+            produto: produtoNormalizado,
+            quantidade: Math.min(
+              QUANTIDADE_MAXIMA,
+              item.quantidade + 1
+            ),
+          };
+        });
       }
 
       return [
@@ -253,9 +606,9 @@ export function CarrinhoProvider({
     });
   }
 
-  // ====================================================
-  // REMOVER PRODUTO COMPLETAMENTE
-  // ====================================================
+  // ==========================================
+  // REMOVER PRODUTO
+  // ==========================================
 
   function remover(produtoId: string) {
     setItens((atuais) =>
@@ -265,9 +618,9 @@ export function CarrinhoProvider({
     );
   }
 
-  // ====================================================
+  // ==========================================
   // ACTUALIZAR QUANTIDADE
-  // ====================================================
+  // ==========================================
 
   function atualizarQuantidade(
     produtoId: string,
@@ -275,7 +628,8 @@ export function CarrinhoProvider({
   ) {
     if (
       !Number.isSafeInteger(quantidade) ||
-      quantidade < 0
+      quantidade < 0 ||
+      quantidade > QUANTIDADE_MAXIMA
     ) {
       return;
     }
@@ -306,9 +660,9 @@ export function CarrinhoProvider({
     );
   }
 
-  // ====================================================
-  // SELECCIONAR / DESSELECCIONAR PRODUTO
-  // ====================================================
+  // ==========================================
+  // ALTERNAR SELECÇÃO
+  // ==========================================
 
   function alternarSelecao(produtoId: string) {
     setItens((atuais) =>
@@ -323,9 +677,9 @@ export function CarrinhoProvider({
     );
   }
 
-  // ====================================================
-  // SELECCIONAR / DESSELECCIONAR TODOS
-  // ====================================================
+  // ==========================================
+  // SELECCIONAR TODOS
+  // ==========================================
 
   function selecionarTodos(selecionado: boolean) {
     setItens((atuais) =>
@@ -336,35 +690,36 @@ export function CarrinhoProvider({
     );
   }
 
-  // ====================================================
-  // LIMPAR TODO O CARRINHO
-  // ====================================================
+  // ==========================================
+  // LIMPAR CARRINHO
+  // ==========================================
 
   function limpar() {
     setItens([]);
   }
 
-  // ====================================================
-  // PRODUTOS SELECCIONADOS
-  // ====================================================
+  // ==========================================
+  // ITENS SELECCIONADOS
+  // ==========================================
 
   const itensSelecionados = itens.filter(
     (item) => item.selecionado
   );
 
-  // ====================================================
+  // ==========================================
   // TOTAL DE TODOS OS PRODUTOS
-  // ====================================================
+  // ==========================================
 
   const total = itens.reduce(
     (soma, item) =>
-      soma + item.produto.price * item.quantidade,
+      soma +
+      item.produto.price * item.quantidade,
     0
   );
 
-  // ====================================================
+  // ==========================================
   // QUANTIDADE TOTAL
-  // ====================================================
+  // ==========================================
 
   const quantidadeTotal = itens.reduce(
     (soma, item) =>
@@ -372,37 +727,63 @@ export function CarrinhoProvider({
     0
   );
 
-  // ====================================================
+  // ==========================================
   // TOTAL DOS PRODUTOS SELECCIONADOS
-  // ====================================================
+  // ==========================================
 
-  const totalSelecionado = itensSelecionados.reduce(
-    (soma, item) =>
-      soma + item.produto.price * item.quantidade,
-    0
+  const totalSelecionado =
+    itensSelecionados.reduce(
+      (soma, item) =>
+        soma +
+        obterPrecoFinal(item.produto) *
+          item.quantidade,
+      0
+    );
+
+  // ==========================================
+  // SUBTOTAL ORIGINAL
+  // ==========================================
+
+  const subtotalOriginal =
+    itensSelecionados.reduce(
+      (soma, item) =>
+        soma +
+        obterPrecoOriginal(item.produto) *
+          item.quantidade,
+      0
+    );
+
+  // ==========================================
+  // DESCONTO TOTAL
+  // ==========================================
+
+  const descontoTotal = Math.max(
+    0,
+    subtotalOriginal - totalSelecionado
   );
 
-  // ====================================================
-  // QUANTIDADE DOS PRODUTOS SELECCIONADOS
-  // ====================================================
+  // ==========================================
+  // QUANTIDADE SELECCIONADA
+  // ==========================================
 
-  const quantidadeSelecionada = itensSelecionados.reduce(
-    (soma, item) =>
-      soma + item.quantidade,
-    0
-  );
+  const quantidadeSelecionada =
+    itensSelecionados.reduce(
+      (soma, item) =>
+        soma + item.quantidade,
+      0
+    );
 
-  // ====================================================
-  // VERIFICAR SE TODOS ESTÃO SELECCIONADOS
-  // ====================================================
+  // ==========================================
+  // TODOS SELECCIONADOS?
+  // ==========================================
 
   const todosSelecionados =
     itens.length > 0 &&
     itens.every((item) => item.selecionado);
 
-  // ====================================================
-  // PROVIDER
-  // ====================================================
+  // ==========================================
+  // CONTEXTO
+  // ==========================================
 
   return (
     <CarrinhoContext.Provider
@@ -413,10 +794,8 @@ export function CarrinhoProvider({
         adicionar,
         remover,
         atualizarQuantidade,
-
         alternarSelecao,
         selecionarTodos,
-
         limpar,
 
         total,
@@ -424,6 +803,9 @@ export function CarrinhoProvider({
 
         totalSelecionado,
         quantidadeSelecionada,
+
+        subtotalOriginal,
+        descontoTotal,
 
         todosSelecionados,
       }}
@@ -433,9 +815,9 @@ export function CarrinhoProvider({
   );
 }
 
-// ======================================================
-// HOOK GLOBAL
-// ======================================================
+// ==========================================
+// HOOK DO CARRINHO
+// ==========================================
 
 export function useCarrinho() {
   const context = useContext(CarrinhoContext);

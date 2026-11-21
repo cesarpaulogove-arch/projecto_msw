@@ -13,6 +13,8 @@ import {
   CheckSquare,
   Square,
   History,
+  Tag,
+  TrendingDown,
 } from "lucide-react";
 
 import { useCarrinho } from "@/app/components/carrinho/CartProvider";
@@ -40,6 +42,38 @@ export default function CarrinhoPage() {
       minimumFractionDigits: 2,
     }).format(valor);
 
+  // =====================================================
+  // CÁLCULO DOS PREÇOS E DESCONTOS
+  // =====================================================
+
+  const subtotalOriginal = itensSelecionados.reduce(
+    (total, item) => {
+      const precoOriginal =
+        item.produto.oldPrice !== null &&
+        item.produto.oldPrice !== undefined &&
+        item.produto.oldPrice > item.produto.price
+          ? item.produto.oldPrice
+          : item.produto.price;
+
+      return total + precoOriginal * item.quantidade;
+    },
+    0
+  );
+
+  const totalComDesconto = totalSelecionado;
+
+  const totalPoupado = Math.max(
+    0,
+    subtotalOriginal - totalComDesconto
+  );
+
+  const temDesconto = totalPoupado > 0;
+
+  const percentagemPoupada =
+    subtotalOriginal > 0
+      ? Math.round((totalPoupado / subtotalOriginal) * 100)
+      : 0;
+
   return (
     <div className="min-h-[65vh] bg-gray-50 py-10">
       <div className="mx-auto max-w-7xl px-5">
@@ -65,6 +99,7 @@ export default function CarrinhoPage() {
           </p>
         </div>
 
+        {/* CARRINHO VAZIO */}
         {itens.length === 0 ? (
           <div className="rounded-2xl border border-gray-200 bg-white px-6 py-16 text-center shadow-sm">
             <ShoppingCart
@@ -85,6 +120,14 @@ export default function CarrinhoPage() {
               className="mt-6 inline-flex rounded-lg bg-cyan-500 px-6 py-3 font-semibold text-white transition hover:bg-cyan-600"
             >
               Explorar produtos
+            </Link>
+
+            <Link
+              href="/historico-compras"
+              className="mx-auto mt-3 flex w-fit items-center justify-center gap-2 rounded-lg border border-cyan-600 px-6 py-3 font-bold text-cyan-700 transition hover:bg-cyan-50"
+            >
+              <History size={18} />
+              Histórico de compras
             </Link>
           </div>
         ) : (
@@ -124,6 +167,25 @@ export default function CarrinhoPage() {
                 const linkProduto =
                   `/produtos/${encodeURIComponent(produto.id)}`;
 
+                const temDescontoProduto =
+                  produto.oldPrice !== null &&
+                  produto.oldPrice !== undefined &&
+                  produto.oldPrice > produto.price;
+
+                const poupancaProduto = temDescontoProduto
+                  ? (produto.oldPrice! - produto.price) *
+                    item.quantidade
+                  : 0;
+
+                const percentagemDesconto =
+                  temDescontoProduto
+                    ? Math.round(
+                        ((produto.oldPrice! - produto.price) /
+                          produto.oldPrice!) *
+                          100
+                      )
+                    : 0;
+
                 return (
                   <div
                     key={produto.id}
@@ -132,7 +194,6 @@ export default function CarrinhoPage() {
                     tabIndex={0}
                     onClick={() => alternarSelecao(produto.id)}
                     onKeyDown={(e) => {
-                      // Evita que os controlos internos accionem a selecção.
                       if (e.target !== e.currentTarget) return;
 
                       if (e.key === "Enter" || e.key === " ") {
@@ -198,12 +259,41 @@ export default function CarrinhoPage() {
                         {produto.name}
                       </Link>
 
-                      <p className="mt-2 font-bold text-cyan-700">
-                        {formatarPreco(produto.price)}
-                      </p>
+                      {/* PREÇO E DESCONTO */}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-cyan-700">
+                          {formatarPreco(produto.price)}
+                        </span>
+
+                        {temDescontoProduto && (
+                          <>
+                            <span className="text-sm text-gray-400 line-through">
+                              {formatarPreco(produto.oldPrice!)}
+                            </span>
+
+                            <span className="rounded-md bg-red-100 px-2 py-1 text-xs font-bold text-red-600">
+                              -{percentagemDesconto}%
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {temDescontoProduto && (
+                        <p className="mt-1 text-xs font-semibold text-green-600">
+                          <TrendingDown
+                            size={13}
+                            className="mr-1 inline"
+                          />
+                          Poupa {formatarPreco(poupancaProduto)}
+                          {" "}neste produto
+                          {item.quantidade > 1
+                            ? ` (${item.quantidade} unidades)`
+                            : ""}
+                        </p>
+                      )}
 
                       <p
-                        className={`mt-1 text-xs font-medium ${
+                        className={`mt-2 text-xs font-medium ${
                           produto.inStock
                             ? "text-green-600"
                             : "text-red-500"
@@ -224,7 +314,7 @@ export default function CarrinhoPage() {
 
                       {!item.selecionado && (
                         <p className="mt-1 text-xs text-gray-400">
-                          Não incluído na encomenda ou cotação.
+                          Não incluído na compra ou cotação.
                         </p>
                       )}
                     </div>
@@ -312,11 +402,11 @@ export default function CarrinhoPage() {
               </div>
             </div>
 
-            {/* RESUMO */}
+            {/* RESUMO DA COMPRA */}
             <aside className="h-fit rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
 
               <h2 className="text-lg font-bold text-[#071B2D]">
-                Resumo da encomenda
+                Resumo da compra
               </h2>
 
               {/* SELECÇÃO */}
@@ -340,41 +430,81 @@ export default function CarrinhoPage() {
                 <span>{itens.length}</span>
               </div>
 
-              <div className="mt-4 flex justify-between text-sm text-gray-600">
+              <div className="mt-3 flex justify-between text-sm text-gray-600">
                 <span>Quantidade seleccionada</span>
                 <span>{quantidadeSelecionada}</span>
               </div>
 
-              <div className="mt-4 flex justify-between gap-3 text-sm text-gray-600">
-                <span>Total dos seleccionados</span>
-                <span className="text-right font-semibold text-[#071B2D]">
-                  {formatarPreco(totalSelecionado)}
+              {/* VALOR ORIGINAL */}
+              <div className="mt-5 flex justify-between gap-3 text-sm text-gray-600">
+                <span>Valor sem descontos</span>
+
+                <span className="text-right font-medium">
+                  {formatarPreco(subtotalOriginal)}
                 </span>
               </div>
+
+              {/* DESCONTOS */}
+              <div className="mt-3 flex justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2 font-medium text-green-700">
+                  <Tag size={15} />
+                  Descontos aplicados
+                </span>
+
+                <span className="text-right font-bold text-green-700">
+                  -{formatarPreco(totalPoupado)}
+                </span>
+              </div>
+
+              {/* POUPANÇA DESTACADA */}
+              {temDesconto && (
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-green-800">
+                    <TrendingDown size={18} />
+                    Estás a poupar!
+                  </div>
+
+                  <p className="mt-2 text-2xl font-black text-green-700">
+                    {formatarPreco(totalPoupado)}
+                  </p>
+
+                  <p className="mt-1 text-xs text-green-700">
+                    Economizas {percentagemPoupada}% em relação ao preço original.
+                  </p>
+                </div>
+              )}
 
               <div className="my-5 border-t border-gray-200" />
 
+              {/* TOTAL FINAL */}
               <div className="flex justify-between gap-3 text-lg font-black text-[#071B2D]">
-                <span>Total</span>
-                <span className="text-right">
-                  {formatarPreco(totalSelecionado)}
+                <span>Total a pagar</span>
+
+                <span className="text-right text-cyan-700">
+                  {formatarPreco(totalComDesconto)}
                 </span>
               </div>
 
+              {temDesconto && (
+                <p className="mt-2 text-right text-xs text-gray-400 line-through">
+                  Antes: {formatarPreco(subtotalOriginal)}
+                </p>
+              )}
+
               <p className="mt-3 text-xs leading-relaxed text-gray-400">
-                Apenas os produtos seleccionados serão considerados
-                no valor apresentado. Os custos de entrega serão
-                considerados na finalização da encomenda.
+                O valor apresentado já considera os descontos dos produtos
+                seleccionados. Os custos de entrega serão calculados na
+                finalização da compra.
               </p>
 
-              {/* FINALIZAR ENCOMENDA */}
+              {/* FINALIZAR COMPRA */}
               {temSelecionados ? (
                 <Link
                   href="/finalizar-encomenda"
                   className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500 px-5 py-3 font-bold text-white transition hover:bg-cyan-600"
                 >
                   <ShoppingCart size={18} />
-                  Finalizar encomenda
+                  Finalizar compra
                 </Link>
               ) : (
                 <button
@@ -383,7 +513,7 @@ export default function CarrinhoPage() {
                   className="mt-6 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-gray-300 px-5 py-3 font-bold text-white"
                 >
                   <ShoppingCart size={18} />
-                  Finalizar encomenda
+                  Finalizar compra
                 </button>
               )}
 
@@ -407,14 +537,14 @@ export default function CarrinhoPage() {
                 </button>
               )}
 
-                {/* HISTÓRICO DE COMPRAS */}
-                <Link
-                  href="/historico-compras"
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-600 px-5 py-3 font-bold text-cyan-700 transition hover:bg-cyan-50"
-                >
-                  <History size={18} />
-                  Histórico de compras
-                </Link>
+              {/* HISTÓRICO DE COMPRAS */}
+              <Link
+                href="/historico-compras"
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-600 px-5 py-3 font-bold text-cyan-700 transition hover:bg-cyan-50"
+              >
+                <History size={18} />
+                Histórico de compras
+              </Link>
 
               {!temSelecionados && (
                 <p className="mt-3 text-center text-xs text-red-500">

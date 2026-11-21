@@ -15,6 +15,7 @@ import {
   Upload,
   X,
   List,
+  Play,
 } from "lucide-react";
 
 const tipos = [
@@ -38,11 +39,47 @@ type ImagemSelecionada = {
   preview: string;
 };
 
+function validarUrlYouTube(url: string): boolean {
+  if (!url.trim()) return true;
+
+  try {
+    const endereco = new URL(url.trim());
+    const host = endereco.hostname.replace(/^www\./, "");
+
+    if (host === "youtu.be") {
+      const id = endereco.pathname.split("/").filter(Boolean)[0];
+      return Boolean(id);
+    }
+
+    if (
+      host === "youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "youtube-nocookie.com"
+    ) {
+      if (endereco.pathname === "/watch") {
+        return Boolean(endereco.searchParams.get("v"));
+      }
+
+      const partes = endereco.pathname.split("/").filter(Boolean);
+
+      return (
+        ["embed", "shorts", "live"].includes(partes[0]) &&
+        Boolean(partes[1])
+      );
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export default function NovoConteudoPage() {
   const [title, setTitle] = useState("");
   const [type, setType] = useState("SERVICOS");
   const [summary, setSummary] = useState("");
   const [content, setContent] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
 
   const [images, setImages] = useState<ImagemSelecionada[]>([]);
   const [principalIndex, setPrincipalIndex] = useState(0);
@@ -67,6 +104,13 @@ export default function NovoConteudoPage() {
     if (type === "SERVICOS") {
       setImages([]);
       setPrincipalIndex(0);
+    }
+  }, [type]);
+
+  // Limpar vídeo quando a categoria deixa de ser Projectos
+  useEffect(() => {
+    if (type !== "PROJECTOS") {
+      setVideoUrl("");
     }
   }, [type]);
 
@@ -146,10 +190,17 @@ export default function NovoConteudoPage() {
       return;
     }
 
+    if (type === "PROJECTOS" && !validarUrlYouTube(videoUrl)) {
+      setError("Introduza um link válido do YouTube.");
+      return;
+    }
+
     const ordemNumerica = Number(order);
 
     if (!Number.isInteger(ordemNumerica) || ordemNumerica < 0) {
-      setError("A ordem deve ser um número inteiro igual ou superior a zero.");
+      setError(
+        "A ordem deve ser um número inteiro igual ou superior a zero."
+      );
       return;
     }
 
@@ -207,6 +258,10 @@ export default function NovoConteudoPage() {
           content: content.trim(),
           image: imagemPrincipal,
           images: imagensCarregadas,
+          videoUrl:
+            type === "PROJECTOS"
+              ? videoUrl.trim() || null
+              : null,
           order: ordemNumerica,
           status: publicar ? "PUBLICADO" : "RASCUNHO",
         }),
@@ -278,7 +333,10 @@ export default function NovoConteudoPage() {
 
         {/* Título */}
         <div>
-          <label htmlFor="title" className="mb-2 block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="title"
+            className="mb-2 block text-sm font-medium text-gray-700"
+          >
             Título *
           </label>
 
@@ -301,7 +359,10 @@ export default function NovoConteudoPage() {
 
         {/* Categoria */}
         <div>
-          <label htmlFor="type" className="mb-2 block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="type"
+            className="mb-2 block text-sm font-medium text-gray-700"
+          >
             Categoria *
           </label>
 
@@ -322,7 +383,10 @@ export default function NovoConteudoPage() {
 
         {/* Resumo */}
         <div>
-          <label htmlFor="summary" className="mb-2 block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="summary"
+            className="mb-2 block text-sm font-medium text-gray-700"
+          >
             Resumo
           </label>
 
@@ -344,7 +408,10 @@ export default function NovoConteudoPage() {
 
         {/* Conteúdo */}
         <div>
-          <label htmlFor="content" className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700">
+          <label
+            htmlFor="content"
+            className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700"
+          >
             {type === "SERVICOS" ? (
               <>
                 <List size={17} />
@@ -376,11 +443,69 @@ export default function NovoConteudoPage() {
           <p className="mt-1 text-xs text-gray-400">
             {type === "SERVICOS"
               ? "Cada linha será apresentada como um elemento de uma lista não ordenada no site público."
-              : "Introduza a descrição completa do conteúdo."
-            }
+              : "Introduza a descrição completa do conteúdo."}
           </p>
         </div>
       </section>
+
+      {/* Vídeo do YouTube: apenas Projectos */}
+      {type === "PROJECTOS" && (
+        <section className="space-y-5 rounded-xl border bg-white p-5 sm:p-7">
+
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-red-100 p-2">
+              <Play className="h-5 w-5 text-red-600" />
+            </div>
+
+            <div>
+              <h2 className="font-semibold text-gray-900">
+                Vídeo do projecto
+              </h2>
+              <p className="text-sm text-gray-500">
+                Adicione um vídeo do YouTube para apresentar o projecto.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="videoUrl"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              Link do YouTube (opcional)
+            </label>
+
+            <input
+              id="videoUrl"
+              type="url"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              disabled={loading}
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-lime-500 focus:ring-2 focus:ring-lime-100"
+            />
+
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">
+              Pode utilizar links normais do YouTube, youtu.be,
+              Shorts ou links de incorporação. Se não existir vídeo,
+              deixe o campo vazio.
+            </p>
+          </div>
+
+          {videoUrl.trim() && (
+            validarUrlYouTube(videoUrl) ? (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                <Check size={16} className="mr-2 inline" />
+                Link do YouTube válido.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                Introduza um link válido do YouTube.
+              </div>
+            )
+          )}
+        </section>
+      )}
 
       {/* Galeria: apenas Projectos e Soluções */}
       {usaImagens && (
@@ -466,6 +591,7 @@ export default function NovoConteudoPage() {
                         type="button"
                         onClick={() => removerImagem(index)}
                         disabled={loading}
+                        aria-label={`Remover ${imagem.file.name}`}
                         className="absolute right-2 top-2 rounded-full bg-white p-2 text-red-600 shadow hover:bg-red-50"
                       >
                         <X size={16} />
@@ -528,7 +654,10 @@ export default function NovoConteudoPage() {
         </h2>
 
         <div>
-          <label htmlFor="order" className="mb-2 block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="order"
+            className="mb-2 block text-sm font-medium text-gray-700"
+          >
             Ordem de apresentação
           </label>
 

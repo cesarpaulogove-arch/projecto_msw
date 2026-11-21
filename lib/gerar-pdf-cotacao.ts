@@ -6,6 +6,7 @@ export interface ItemPDFCotacao {
   productName: string;
   quantity: number;
   unitPrice: string | number;
+  originalUnitPrice?: string | number | null;
   total: string | number;
 }
 
@@ -22,6 +23,8 @@ export interface DadosPDFCotacao {
   email?: string | null;
   address?: string | null;
 
+  subtotalOriginal?: string | number | null;
+  discountTotal?: string | number | null;
   total: string | number;
   currency?: string;
 
@@ -38,17 +41,32 @@ const COR = {
   cinza: [100, 116, 139] as [number, number, number],
   claro: [241, 245, 249] as [number, number, number],
   escuro: [15, 23, 42] as [number, number, number],
+  desconto: [16, 150, 100] as [number, number, number],
 };
 
 const MARGEM = 15;
 
-function moeda(valor: string | number): string {
-  return new Intl.NumberFormat("pt-MZ", {
-    style: "currency",
-    currency: "MZN",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(valor) || 0);
+function numeroSeguro(
+  valor: string | number | null | undefined
+): number {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function moeda(
+  valor: string | number,
+  currency = "MZN"
+): string {
+  try {
+    return new Intl.NumberFormat("pt-MZ", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(numeroSeguro(valor));
+  } catch {
+    return `${numeroSeguro(valor).toFixed(2)} ${currency}`;
+  }
 }
 
 function dataFormatada(data?: string | null): string {
@@ -89,7 +107,9 @@ async function carregarCarimbo(): Promise<string | null> {
         );
       };
 
-      leitor.onerror = () => reject(new Error("Erro ao carregar carimbo."));
+      leitor.onerror = () => {
+        reject(new Error("Erro ao carregar carimbo."));
+      };
 
       leitor.readAsDataURL(blob);
     });
@@ -102,7 +122,11 @@ async function carregarCarimbo(): Promise<string | null> {
 export async function gerarPDFCotacao(
   dados: DadosPDFCotacao
 ): Promise<void> {
-  if (!dados || !dados.quoteNumber || !dados.items?.length) {
+  if (
+    !dados ||
+    !dados.quoteNumber ||
+    !dados.items?.length
+  ) {
     throw new Error("Os dados da cotação estão incompletos.");
   }
 
@@ -114,15 +138,110 @@ export async function gerarPDFCotacao(
 
   const larguraPagina = pdf.internal.pageSize.getWidth();
   const alturaPagina = pdf.internal.pageSize.getHeight();
-
   const larguraUtil = larguraPagina - MARGEM * 2;
+  const moedaCotacao = dados.currency || "MZN";
 
   let y = 15;
 
-  // Carregar carimbo.
+  // =====================================================
+  // 1. CALCULAR DESCONTOS
+  // =====================================================
+
+  const produtosCalculados = dados.items.map((item) => {
+    const quantidade = Math.max(
+      0,
+      numeroSeguro(item.quantity)
+    );
+
+    const precoFinal = Math.max(
+      0,
+      numeroSeguro(item.unitPrice)
+    );
+
+    const precoOriginalInformado =
+      item.originalUnitPrice !== null &&
+      item.originalUnitPrice !== undefined
+        ? numeroSeguro(item.originalUnitPrice)
+        : precoFinal;
+
+    const precoOriginal = Math.max(
+      precoFinal,
+      precoOriginalInformado
+    );
+
+    const totalOriginal = precoOriginal * quantidade;
+
+    const totalFinalInformado = Number(item.total);
+
+    const totalFinal = Number.isFinite(totalFinalInformado)
+      ? Math.max(0, totalFinalInformado)
+      : precoFinal * quantidade;
+
+    const desconto = Math.max(
+      0,
+      totalOriginal - totalFinal
+    );
+
+    return {
+      ...item,
+      quantidade,
+      precoOriginal,
+      precoFinal,
+      totalOriginal,
+      totalFinal,
+      desconto,
+      temDesconto: desconto > 0,
+    };
+  });
+
+  const subtotalOriginalCalculado =
+    produtosCalculados.reduce(
+      (soma, item) => soma + item.totalOriginal,
+      0
+    );
+
+  const subtotalFinalCalculado =
+    produtosCalculados.reduce(
+      (soma, item) => soma + item.totalFinal,
+      0
+    );
+
+  const subtotalOriginalGuardado = numeroSeguro(
+    dados.subtotalOriginal
+  );
+
+  const descontoGuardado = numeroSeguro(
+    dados.discountTotal
+  );
+
+  const subtotalOriginal =
+    subtotalOriginalGuardado > 0
+      ? subtotalOriginalGuardado
+      : subtotalOriginalCalculado;
+
+  const descontoTotal =
+    descontoGuardado > 0
+      ? descontoGuardado
+      : Math.max(
+          0,
+          subtotalOriginal - subtotalFinalCalculado
+        );
+
+  const totalPagar = Math.max(
+    0,
+    numeroSeguro(dados.total)
+  );
+
+  // =====================================================
+  // 2. CARIMBO
+  // =====================================================
+
   const imagemCarimboPromise = carregarCarimbo();
 
-  // Cabeçalho.
+  // =====================================================
+  // 3. CABEÇALHO
+  // =====================================================
+
   function adicionarCabecalho() {
     pdf.setFillColor(...COR.azul);
     pdf.rect(0, 0, larguraPagina, 43, "F");
@@ -155,9 +274,12 @@ export async function gerarPDFCotacao(
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(17);
 
-    pdf.text("COTACAO", larguraPagina - MARGEM, 16, {
-      align: "right",
-    });
+    pdf.text(
+      "COTACAO",
+      larguraPagina - MARGEM,
+      16,
+      { align: "right" }
+    );
 
     pdf.setTextColor(255, 255, 255);
     pdf.setFont("helvetica", "normal");
@@ -178,12 +300,21 @@ export async function gerarPDFCotacao(
     );
   }
 
-  // Rodapé.
+  // =====================================================
+  // 4. RODAPÉ
+  // =====================================================
+
   function adicionarRodape() {
     const rodapeY = alturaPagina - 15;
 
     pdf.setDrawColor(210, 220, 230);
-    pdf.line(MARGEM, rodapeY - 7, larguraPagina - MARGEM, rodapeY - 7);
+
+    pdf.line(
+      MARGEM,
+      rodapeY - 7,
+      larguraPagina - MARGEM,
+      rodapeY - 7
+    );
 
     pdf.setTextColor(...COR.azul);
     pdf.setFont("helvetica", "bold");
@@ -214,14 +345,16 @@ export async function gerarPDFCotacao(
     );
   }
 
-  // Nova página.
+  // =====================================================
+  // 5. PAGINAÇÃO
+  // =====================================================
+
   function novaPagina() {
     pdf.addPage();
     adicionarCabecalho();
     y = 53;
   }
 
-  // Verificar espaço disponível para o conteúdo.
   function verificarEspaco(altura: number) {
     const limite = alturaPagina - 27;
 
@@ -233,7 +366,10 @@ export async function gerarPDFCotacao(
   adicionarCabecalho();
   y = 53;
 
-  // Título da secção.
+  // =====================================================
+  // 6. TÍTULOS
+  // =====================================================
+
   function tituloSecao(titulo: string) {
     verificarEspaco(9);
 
@@ -242,11 +378,13 @@ export async function gerarPDFCotacao(
     pdf.setTextColor(...COR.azul);
 
     pdf.text(titulo, MARGEM, y);
-
     y += 7;
   }
 
-  // Dados do cliente e da loja.
+  // =====================================================
+  // 7. CLIENTE E LOJA
+  // =====================================================
+
   tituloSecao("INFORMACOES DO CLIENTE E ESTABELECIMENTO");
 
   const larguraColuna = (larguraUtil - 10) / 2;
@@ -293,6 +431,7 @@ export async function gerarPDFCotacao(
   );
 
   pdf.setDrawColor(210, 220, 230);
+
   pdf.line(
     larguraPagina / 2,
     y + 4,
@@ -313,7 +452,6 @@ export async function gerarPDFCotacao(
       pdf.setTextColor(...COR.escuro);
 
       const partes = pdf.splitTextToSize(linha, largura);
-
       pdf.text(partes, x, posicaoY);
 
       posicaoY += partes.length * 4 + 1;
@@ -336,7 +474,10 @@ export async function gerarPDFCotacao(
 
   y += Math.max(43, fimCliente - y + 5) + 7;
 
-  // Informação da cotação.
+  // =====================================================
+  // 8. INFORMAÇÃO DA COTAÇÃO
+  // =====================================================
+
   tituloSecao("INFORMACAO DA COTACAO");
 
   pdf.setFont("helvetica", "normal");
@@ -365,90 +506,128 @@ export async function gerarPDFCotacao(
 
   y += 10;
 
-  // Tabela de produtos.
+  // =====================================================
+  // 9. TABELA DE PRODUTOS
+  // =====================================================
+
   tituloSecao("PRODUTOS E SERVICOS");
 
   const colunas = {
     produto: MARGEM + 2,
-    quantidade: MARGEM + 104,
-    unitario: MARGEM + 130,
+    quantidade: MARGEM + 91,
+    original: MARGEM + 127,
+    unitario: MARGEM + 158,
     total: larguraPagina - MARGEM - 2,
   };
 
   function cabecalhoTabela() {
     pdf.setFillColor(...COR.azul);
-
-    pdf.rect(
-      MARGEM,
-      y - 5,
-      larguraUtil,
-      10,
-      "F"
-    );
+    pdf.rect(MARGEM, y - 5, larguraUtil, 10, "F");
 
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8);
+    pdf.setFontSize(7);
     pdf.setTextColor(255, 255, 255);
 
     pdf.text("PRODUTO", colunas.produto, y + 1);
 
-    pdf.text("QTD.", colunas.quantidade, y + 1, {
-      align: "center",
-    });
+    pdf.text(
+      "QTD.",
+      colunas.quantidade,
+      y + 1,
+      { align: "center" }
+    );
 
-    pdf.text("PRECO UNIT.", colunas.unitario, y + 1, {
-      align: "right",
-    });
+    pdf.text(
+      "PRECO BASE",
+      colunas.original,
+      y + 1,
+      { align: "right" }
+    );
 
-    pdf.text("TOTAL", colunas.total, y + 1, {
-      align: "right",
-    });
+    pdf.text(
+      "PRECO FINAL",
+      colunas.unitario,
+      y + 1,
+      { align: "right" }
+    );
+
+    pdf.text(
+      "TOTAL",
+      colunas.total,
+      y + 1,
+      { align: "right" }
+    );
 
     y += 10;
   }
 
   cabecalhoTabela();
 
-  dados.items.forEach((item) => {
+  // =====================================================
+  // 10. PRODUTOS E DESCONTOS INDIVIDUAIS
+  // =====================================================
+
+  produtosCalculados.forEach((item) => {
     const nomeProduto = pdf.splitTextToSize(
       item.productName,
-      88
+      75
     );
 
-    const alturaLinha = Math.max(9, nomeProduto.length * 4 + 4);
+    const alturaLinha = Math.max(
+      9,
+      nomeProduto.length * 4 + 4
+    );
 
-    verificarEspaco(alturaLinha + 3);
+    verificarEspaco(alturaLinha + 12);
 
-    // Repetir cabeçalho caso tenha sido criada nova página.
     if (y === 53) {
       tituloSecao("PRODUTOS E SERVICOS");
       cabecalhoTabela();
     }
 
     pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
+    pdf.setFontSize(7);
     pdf.setTextColor(...COR.escuro);
 
     pdf.text(nomeProduto, colunas.produto, y + 2);
 
     pdf.text(
-      String(item.quantity),
+      String(item.quantidade),
       colunas.quantidade,
       y + 2,
       { align: "center" }
     );
 
+    pdf.setTextColor(...COR.cinza);
+
     pdf.text(
-      moeda(item.unitPrice),
+      moeda(item.precoOriginal, moedaCotacao),
+      colunas.original,
+      y + 2,
+      { align: "right" }
+    );
+
+    pdf.setFont(
+      "helvetica",
+      item.temDesconto ? "bold" : "normal"
+    );
+
+    pdf.setTextColor(
+      ...(item.temDesconto ? COR.desconto : COR.escuro)
+    );
+
+    pdf.text(
+      moeda(item.precoFinal, moedaCotacao),
       colunas.unitario,
       y + 2,
       { align: "right" }
     );
 
     pdf.setFont("helvetica", "bold");
+    pdf.setTextColor(...COR.azul);
 
     pdf.text(
-      moeda(item.total),
+      moeda(item.totalFinal, moedaCotacao),
       colunas.total,
       y + 2,
       { align: "right" }
@@ -456,45 +635,118 @@ export async function gerarPDFCotacao(
 
     y += alturaLinha;
 
-    pdf.setDrawColor(225, 232, 240);
-    pdf.line(MARGEM, y, larguraPagina - MARGEM, y);
+    if (item.temDesconto) {
+      pdf.setFont("helvetica", "italic");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...COR.desconto);
 
-    y += 2;
+      pdf.text(
+        `Desconto aplicado: ${moeda(item.desconto, moedaCotacao)}`,
+        colunas.produto,
+        y
+      );
+
+      y += 4;
+    }
+
+    pdf.setDrawColor(225, 232, 240);
+
+    pdf.line(
+      MARGEM,
+      y,
+      larguraPagina - MARGEM,
+      y
+    );
+
+    y += 3;
   });
 
-  // Total.
-  verificarEspaco(20);
+  // =====================================================
+  // 11. RESUMO FINANCEIRO
+  // =====================================================
+
+  const alturaResumo = descontoTotal > 0 ? 34 : 24;
+
+  verificarEspaco(alturaResumo + 12);
 
   y += 5;
 
+  const larguraResumo = 85;
+  const xResumo = larguraPagina - MARGEM - larguraResumo;
+
   pdf.setFillColor(...COR.claro);
+
   pdf.roundedRect(
-    larguraPagina - MARGEM - 75,
+    xResumo,
     y,
-    75,
-    16,
+    larguraResumo,
+    alturaResumo,
     2,
     2,
     "F"
+  );
+
+  let resumoY = y + 7;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(8);
+  pdf.setTextColor(...COR.cinza);
+
+  pdf.text("Subtotal original", xResumo + 5, resumoY);
+
+  pdf.text(
+    moeda(subtotalOriginal, moedaCotacao),
+    xResumo + larguraResumo - 5,
+    resumoY,
+    { align: "right" }
+  );
+
+  resumoY += 7;
+
+  if (descontoTotal > 0) {
+    pdf.setTextColor(...COR.desconto);
+    pdf.setFont("helvetica", "bold");
+
+    pdf.text("Desconto total", xResumo + 5, resumoY);
+
+    pdf.text(
+      `- ${moeda(descontoTotal, moedaCotacao)}`,
+      xResumo + larguraResumo - 5,
+      resumoY,
+      { align: "right" }
+    );
+
+    resumoY += 7;
+  }
+
+  pdf.setDrawColor(210, 220, 230);
+
+  pdf.line(
+    xResumo + 5,
+    resumoY - 3,
+    xResumo + larguraResumo - 5,
+    resumoY - 3
   );
 
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(10);
   pdf.setTextColor(...COR.azul);
 
-  pdf.text("TOTAL", larguraPagina - MARGEM - 70, y + 10);
+  pdf.text("TOTAL", xResumo + 5, resumoY + 4);
 
-  pdf.setFontSize(11);
   pdf.text(
-    moeda(dados.total),
-    larguraPagina - MARGEM - 4,
-    y + 10,
+    moeda(totalPagar, moedaCotacao),
+    xResumo + larguraResumo - 5,
+    resumoY + 4,
     { align: "right" }
   );
 
-  y += 25;
+  y += alturaResumo + 7;
 
-  // Observações.
+  // =====================================================
+  // 12. OBSERVAÇÕES
+  // =====================================================
+
   if (dados.notes?.trim()) {
     const observacoes = pdf.splitTextToSize(
       dados.notes.trim(),
@@ -520,29 +772,43 @@ export async function gerarPDFCotacao(
     y += observacoes.length * 4 + 7;
   }
 
-  // Mensagem de validade.
-  const mensagem =
-    "Esta cotacao e valida por 5 dias apos a emissao.";
+  // =====================================================
+  // 13. VALIDADE
+  // =====================================================
 
-  verificarEspaco(10);
+  const mensagem = dados.validUntil
+    ? `Esta cotacao e valida ate ${dataFormatada(dados.validUntil)}.`
+    : "Consulte a data de validade indicada nesta cotacao.";
+
+  const mensagemLinhas = pdf.splitTextToSize(
+    mensagem,
+    larguraUtil
+  );
+
+  verificarEspaco(mensagemLinhas.length * 4 + 10);
 
   pdf.setFont("helvetica", "italic");
   pdf.setFontSize(8);
   pdf.setTextColor(...COR.cinza);
 
-  pdf.text(mensagem, larguraPagina / 2, y, {
-    align: "center",
-  });
+  pdf.text(
+    mensagemLinhas,
+    larguraPagina / 2,
+    y,
+    { align: "center" }
+  );
 
-  y += 10;
+  y += mensagemLinhas.length * 4 + 10;
 
-  // Carimbo no final do documento.
+  // =====================================================
+  // 14. CARIMBO
+  // =====================================================
+
   const imagemCarimbo = await imagemCarimboPromise;
 
   const larguraCarimbo = 45;
   const alturaCarimbo = 29;
 
-  // Se não houver espaço suficiente, criar uma nova página.
   if (y + alturaCarimbo > alturaPagina - 23) {
     novaPagina();
   }
@@ -561,7 +827,10 @@ export async function gerarPDFCotacao(
     );
   }
 
-  // Rodapé em todas as páginas.
+  // =====================================================
+  // 15. RODAPÉ EM TODAS AS PÁGINAS
+  // =====================================================
+
   const totalPaginas = pdf.getNumberOfPages();
 
   for (let pagina = 1; pagina <= totalPaginas; pagina++) {
@@ -569,8 +838,9 @@ export async function gerarPDFCotacao(
     adicionarRodape();
   }
 
-  // Nome do ficheiro.
-  const nomeFicheiro = `Cotacao-${dados.quoteNumber}.pdf`;
+  // =====================================================
+  // 16. GUARDAR PDF
+  // =====================================================
 
-  pdf.save(nomeFicheiro);
+  pdf.save(`Cotacao-${dados.quoteNumber}.pdf`);
 }

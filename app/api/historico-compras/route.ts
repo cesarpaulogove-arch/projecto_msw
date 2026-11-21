@@ -1,67 +1,101 @@
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getClientSession } from "@/lib/client-session";
 
 function normalizarTelefone(valor: string): string {
-  let numero = valor.replace(/\D/g, "");
-
-  if (numero.startsWith("00258")) {
-    numero = numero.slice(5);
-  } else if (numero.startsWith("258")) {
-    numero = numero.slice(3);
-  }
-
-  return numero;
+  return valor.replace(/\D/g, "")
+    .replace(/^00258/, "")
+    .replace(/^258/, "");
 }
 
-export async function GET(request: NextRequest) {
+function formatosTelefone(valor: string): string[] {
+  const numero = normalizarTelefone(valor);
+
+  if (!/^8\d{8}$/.test(numero)) {
+    return [];
+  }
+
+  return [
+    numero,
+    `+258${numero}`,
+    `258${numero}`,
+    `00258${numero}`,
+  ];
+}
+
+export async function GET() {
   try {
-    const telefoneRecebido =
-      request.nextUrl.searchParams.get("telefone") || "";
+    // 1. Verificar sessão do cliente
+    const sessao = await getClientSession();
 
-    const telefone = normalizarTelefone(telefoneRecebido);
-
-    // Validar telefone moçambicano
-    if (!/^8\d{8}$/.test(telefone)) {
+    if (!sessao) {
       return NextResponse.json(
         {
           success: false,
-          error: "Introduz um número de telefone válido.",
+          error: "Inicia sessão para consultar o teu histórico.",
         },
-        { status: 400 }
+        { status: 401 }
       );
     }
 
-    // Consultar encomendas
+    // 2. Construir critérios da conta autenticada
+    const telefone = sessao.phone
+      ? formatosTelefone(sessao.phone)
+      : [];
+
+    const email = sessao.email?.trim();
+
+    const identificadores = [];
+
+    if (telefone.length > 0) {
+      identificadores.push({
+        phone: { in: telefone },
+      });
+    }
+
+    if (email) {
+      identificadores.push({
+        email: {
+          equals: email,
+          mode: "insensitive" as const,
+        },
+      });
+    }
+
+    if (identificadores.length === 0) {
+      return NextResponse.json({
+        success: true,
+        encontrado: false,
+        quantidade: 0,
+        encomendas: [],
+      });
+    }
+
+    // 3. Consultar apenas encomendas associadas à conta
     const encomendas = await prisma.order.findMany({
       where: {
-        phone: telefone,
+        OR: identificadores,
       },
-
       orderBy: {
         createdAt: "desc",
       },
-
       select: {
         id: true,
         orderNumber: true,
-
         customerType: true,
         customerName: true,
         company: true,
         nuit: true,
-
         phone: true,
         email: true,
         address: true,
         district: true,
         notes: true,
-
         deliveryFee: true,
         total: true,
         status: true,
         createdAt: true,
-
         items: {
           select: {
             id: true,
@@ -74,29 +108,23 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Preparar resposta
+    // 4. Preparar resposta
     const resultado = encomendas.map((encomenda) => ({
       id: encomenda.id,
-
       referencia: encomenda.orderNumber,
-
       tipoCliente: encomenda.customerType,
       cliente: encomenda.customerName,
       empresa: encomenda.company,
       nuit: encomenda.nuit,
-
       telefone: encomenda.phone,
       email: encomenda.email,
       endereco: encomenda.address,
       distrito: encomenda.district,
       observacoes: encomenda.notes,
-
       entrega: Number(encomenda.deliveryFee),
       total: Number(encomenda.total),
-
       estado: encomenda.status,
       data: encomenda.createdAt,
-
       produtos: encomenda.items.map((item) => ({
         id: item.id,
         nome: item.productName,
@@ -121,10 +149,7 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
-    console.error(
-      "Erro ao consultar histórico de compras:",
-      error
-    );
+    console.error("Erro ao consultar histórico:", error);
 
     return NextResponse.json(
       {

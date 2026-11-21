@@ -45,6 +45,51 @@ function validarUrlImagem(valor: string): boolean {
   }
 }
 
+// Extrair e validar o ID de um vídeo do YouTube
+function obterYoutubeId(valor: string): string | null {
+  try {
+    const url = new URL(valor);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+
+    if (
+      hostname === "youtu.be" ||
+      hostname === "m.youtu.be"
+    ) {
+      const id = url.pathname.split("/").filter(Boolean)[0];
+      return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+    }
+
+    if (
+      hostname !== "youtube.com" &&
+      hostname !== "m.youtube.com" &&
+      hostname !== "youtube-nocookie.com"
+    ) {
+      return null;
+    }
+
+    let id: string | null = null;
+
+    if (hostname === "youtube-nocookie.com") {
+      const partes = url.pathname.split("/").filter(Boolean);
+      id = partes[0] === "embed" ? partes[1] ?? null : null;
+    } else if (url.pathname === "/watch") {
+      id = url.searchParams.get("v");
+    } else {
+      const partes = url.pathname.split("/").filter(Boolean);
+
+      if (
+        ["embed", "shorts", "live"].includes(partes[0])
+      ) {
+        id = partes[1] ?? null;
+      }
+    }
+
+    return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function gerarSlug(titulo: string): string {
   return titulo
     .normalize("NFD")
@@ -136,6 +181,36 @@ export async function POST(request: NextRequest) {
       typeof dados.content === "string"
         ? dados.content.trim()
         : "";
+
+    // Vídeo do YouTube - apenas para PROJECTOS
+    let videoUrl: string | null = null;
+
+    if (type === "PROJECTOS") {
+      if (
+        dados.videoUrl !== undefined &&
+        dados.videoUrl !== null &&
+        typeof dados.videoUrl !== "string"
+      ) {
+        return respostaErro(
+          "O endereço do vídeo tem um formato inválido."
+        );
+      }
+
+      const videoInformado =
+        typeof dados.videoUrl === "string"
+          ? dados.videoUrl.trim()
+          : "";
+
+      if (videoInformado) {
+        if (!obterYoutubeId(videoInformado)) {
+          return respostaErro(
+            "Insira um endereço válido de um vídeo do YouTube."
+          );
+        }
+
+        videoUrl = videoInformado;
+      }
+    }
 
     // Imagem principal
     let image: string | null = null;
@@ -290,6 +365,7 @@ export async function POST(request: NextRequest) {
         content,
         image,
         images: imagensFinais,
+        videoUrl,
         order,
         status,
         publishedAt,

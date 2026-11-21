@@ -19,6 +19,27 @@ const estadosPermitidos = [
 type QuotationStatus =
   (typeof estadosPermitidos)[number];
 
+// ==========================================
+// RESPOSTAS DE ERRO
+// ==========================================
+
+function erro(
+  mensagem: string,
+  status: number
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: mensagem,
+    },
+    { status }
+  );
+}
+
+// ==========================================
+// TEXTO OPCIONAL
+// ==========================================
+
 function textoOpcional(
   valor: unknown
 ): string | null | undefined {
@@ -34,11 +55,43 @@ function textoOpcional(
   return resultado || null;
 }
 
+// ==========================================
+// VALIDAR EMAIL
+// ==========================================
+
 function validarEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// GET — Consultar cotação individual
+// ==========================================
+// VALIDAR IDENTIFICADOR
+// ==========================================
+
+function validarId(id: string): boolean {
+  return (
+    typeof id === "string" &&
+    id.trim().length > 0 &&
+    id.length <= 100
+  );
+}
+
+// ==========================================
+// CAMPOS FINANCEIROS PROTEGIDOS
+// ==========================================
+
+const camposFinanceirosProtegidos = [
+  "total",
+  "subtotalOriginal",
+  "discountTotal",
+  "currency",
+  "items",
+  "validUntil",
+];
+
+// ==========================================
+// GET — CONSULTAR COTAÇÃO
+// ==========================================
+
 export async function GET(
   _request: NextRequest,
   { params }: RouteParams
@@ -46,46 +99,79 @@ export async function GET(
   try {
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        { error: "Identificador da cotação não informado." },
-        { status: 400 }
+    if (!validarId(id)) {
+      return erro(
+        "Identificador da cotação inválido.",
+        400
       );
     }
 
-    const cotacao = await prisma.quotation.findUnique({
-      where: { id },
-      include: {
-        items: {
-          orderBy: {
-            id: "asc",
+    const cotacao =
+      await prisma.quotation.findUnique({
+        where: { id },
+
+        include: {
+          items: {
+            orderBy: {
+              id: "asc",
+            },
           },
         },
-      },
-    });
+      });
 
     if (!cotacao) {
-      return NextResponse.json(
-        { error: "Cotação não encontrada." },
-        { status: 404 }
+      return erro(
+        "Cotação não encontrada.",
+        404
       );
     }
 
+    // ======================================
+    // RESUMO FINANCEIRO
+    // ======================================
+
     return NextResponse.json({
+      success: true,
+
       quotation: cotacao,
+
+      resumo: {
+        subtotalOriginal:
+          cotacao.subtotalOriginal.toString(),
+
+        descontoTotal:
+          cotacao.discountTotal.toString(),
+
+        total:
+          cotacao.total.toString(),
+
+        currency: cotacao.currency,
+
+        quantidadeItens:
+          cotacao.items.reduce(
+            (soma, item) =>
+              soma + item.quantity,
+            0
+          ),
+      },
     });
-
   } catch (error) {
-    console.error("Erro ao consultar cotação:", error);
+    console.error(
+      "Erro ao consultar cotação:",
+      error
+    );
 
-    return NextResponse.json(
-      { error: "Não foi possível consultar a cotação." },
-      { status: 500 }
+    return erro(
+      "Não foi possível consultar a cotação.",
+      500
     );
   }
 }
 
-// PATCH — Actualizar dados da cotação
+// ==========================================
+// PATCH — ACTUALIZAR COTAÇÃO
+// ==========================================
+
 export async function PATCH(
   request: NextRequest,
   { params }: RouteParams
@@ -93,33 +179,47 @@ export async function PATCH(
   try {
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        { error: "Identificador da cotação não informado." },
-        { status: 400 }
+    if (!validarId(id)) {
+      return erro(
+        "Identificador da cotação inválido.",
+        400
       );
     }
+
+    // ======================================
+    // 1. VERIFICAR EXISTÊNCIA
+    // ======================================
 
     const cotacaoExistente =
       await prisma.quotation.findUnique({
         where: { id },
+
+        select: {
+          id: true,
+          status: true,
+          customerType: true,
+        },
       });
 
     if (!cotacaoExistente) {
-      return NextResponse.json(
-        { error: "Cotação não encontrada." },
-        { status: 404 }
+      return erro(
+        "Cotação não encontrada.",
+        404
       );
     }
+
+    // ======================================
+    // 2. RECEBER DADOS
+    // ======================================
 
     let dados: Record<string, unknown>;
 
     try {
       dados = await request.json();
     } catch {
-      return NextResponse.json(
-        { error: "Dados enviados inválidos." },
-        { status: 400 }
+      return erro(
+        "Dados enviados inválidos.",
+        400
       );
     }
 
@@ -128,11 +228,47 @@ export async function PATCH(
       typeof dados !== "object" ||
       Array.isArray(dados)
     ) {
-      return NextResponse.json(
-        { error: "Dados enviados inválidos." },
-        { status: 400 }
+      return erro(
+        "Dados enviados inválidos.",
+        400
       );
     }
+
+    // ======================================
+    // 3. PROTEGER CAMPOS FINANCEIROS
+    // ======================================
+
+    const campoFinanceiroEnviado =
+      camposFinanceirosProtegidos.find(
+        (campo) =>
+          Object.prototype.hasOwnProperty.call(
+            dados,
+            campo
+          )
+      );
+
+    if (campoFinanceiroEnviado) {
+      return erro(
+        `O campo ${campoFinanceiroEnviado} não pode ser alterado directamente.`,
+        400
+      );
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        dados,
+        "originalUnitPrice"
+      )
+    ) {
+      return erro(
+        "Os preços históricos dos produtos não podem ser alterados.",
+        400
+      );
+    }
+
+    // ======================================
+    // 4. PREPARAR ACTUALIZAÇÃO
+    // ======================================
 
     const data: {
       customerName?: string;
@@ -144,118 +280,212 @@ export async function PATCH(
       status?: QuotationStatus;
     } = {};
 
-    // Nome do cliente
+    // ======================================
+    // 5. NOME DO CLIENTE
+    // ======================================
+
     if (dados.customerName !== undefined) {
       if (
         typeof dados.customerName !== "string" ||
         dados.customerName.trim().length < 2 ||
         dados.customerName.trim().length > 150
       ) {
-        return NextResponse.json(
-          { error: "Nome do cliente inválido." },
-          { status: 400 }
+        return erro(
+          "Nome do cliente inválido.",
+          400
         );
       }
 
-      data.customerName = dados.customerName.trim();
+      data.customerName =
+        dados.customerName.trim();
     }
 
-    // Empresa
+    // ======================================
+    // 6. EMPRESA
+    // ======================================
+
     if (dados.company !== undefined) {
-      const company = textoOpcional(dados.company);
+      const company = textoOpcional(
+        dados.company
+      );
 
       if (
         company === undefined ||
         (company && company.length > 150)
       ) {
-        return NextResponse.json(
-          { error: "Nome da empresa inválido." },
-          { status: 400 }
+        return erro(
+          "Nome da empresa inválido.",
+          400
         );
       }
 
       data.company = company;
     }
 
-    // Telefone
+    // ======================================
+    // 7. TELEFONE
+    // ======================================
+
     if (dados.phone !== undefined) {
       if (
         typeof dados.phone !== "string" ||
-        dados.phone.trim().length < 5 ||
+        dados.phone.trim().replace(/\D/g, "").length < 9 ||
         dados.phone.trim().length > 40
       ) {
-        return NextResponse.json(
-          { error: "Contacto telefónico inválido." },
-          { status: 400 }
+        return erro(
+          "Contacto telefónico inválido.",
+          400
         );
       }
 
       data.phone = dados.phone.trim();
     }
 
-    // Email
+    // ======================================
+    // 8. EMAIL
+    // ======================================
+
     if (dados.email !== undefined) {
-      const email = textoOpcional(dados.email);
+      const email = textoOpcional(
+        dados.email
+      );
 
       if (
         email === undefined ||
         (email && !validarEmail(email))
       ) {
-        return NextResponse.json(
-          { error: "Endereço de email inválido." },
-          { status: 400 }
+        return erro(
+          "Endereço de email inválido.",
+          400
         );
       }
 
       data.email = email;
     }
 
-    // Endereço
+    // ======================================
+    // 9. ENDEREÇO
+    // ======================================
+
     if (dados.address !== undefined) {
-      const address = textoOpcional(dados.address);
+      const address = textoOpcional(
+        dados.address
+      );
 
       if (
         address === undefined ||
         (address && address.length > 500)
       ) {
-        return NextResponse.json(
-          { error: "Endereço inválido." },
-          { status: 400 }
+        return erro(
+          "Endereço inválido.",
+          400
         );
       }
 
       data.address = address;
     }
 
-    // Observações
+    // ======================================
+    // 10. OBSERVAÇÕES
+    // ======================================
+
     if (dados.notes !== undefined) {
-      const notes = textoOpcional(dados.notes);
+      const notes = textoOpcional(
+        dados.notes
+      );
 
       if (
         notes === undefined ||
         (notes && notes.length > 2000)
       ) {
-        return NextResponse.json(
-          { error: "Observações inválidas." },
-          { status: 400 }
+        return erro(
+          "Observações inválidas.",
+          400
         );
       }
 
       data.notes = notes;
     }
 
-    // Validade automática:
-    // Não permitir que o cliente ou a edição alterem validUntil.
-    if (dados.validUntil !== undefined) {
-      return NextResponse.json(
-        {
-          error: "A validade da cotação é automática e corresponde a 5 dias após a emissão.",
-        },
-        { status: 400 }
+    // ======================================
+    // 11. TIPO DE CLIENTE
+    // ======================================
+
+    if (dados.customerType !== undefined) {
+      if (
+        dados.customerType !== "INDIVIDUAL" &&
+        dados.customerType !== "COMPANY"
+      ) {
+        return erro(
+          "Tipo de cliente inválido.",
+          400
+        );
+      }
+
+      if (
+        dados.customerType !==
+        cotacaoExistente.customerType
+      ) {
+        return erro(
+          "O tipo de cliente não pode ser alterado nesta cotação.",
+          400
+        );
+      }
+    }
+
+    // ======================================
+    // 12. NUIT
+    // ======================================
+
+    if (dados.nuit !== undefined) {
+      const nuit = textoOpcional(
+        dados.nuit
+      );
+
+      if (
+        nuit === undefined ||
+        (
+          nuit !== null &&
+          !/^\d{9}$/.test(nuit)
+        )
+      ) {
+        return erro(
+          "NUIT inválido. Deve conter exactamente 9 dígitos.",
+          400
+        );
+      }
+
+      if (
+        cotacaoExistente.customerType === "COMPANY" &&
+        nuit === null
+      ) {
+        return erro(
+          "O NUIT é obrigatório para clientes empresariais.",
+          400
+        );
+      }
+
+      return erro(
+        "O NUIT não pode ser alterado directamente nesta cotação.",
+        400
       );
     }
 
-    // Estado
+    // ======================================
+    // 13. VALIDADE AUTOMÁTICA
+    // ======================================
+
+    if (dados.validUntil !== undefined) {
+      return erro(
+        "A validade da cotação é automática e corresponde a 5 dias após a emissão.",
+        400
+      );
+    }
+
+    // ======================================
+    // 14. ESTADO
+    // ======================================
+
     if (dados.status !== undefined) {
       if (
         typeof dados.status !== "string" ||
@@ -263,26 +493,37 @@ export async function PATCH(
           dados.status as QuotationStatus
         )
       ) {
-        return NextResponse.json(
-          { error: "Estado da cotação inválido." },
-          { status: 400 }
+        return erro(
+          "Estado da cotação inválido.",
+          400
         );
       }
 
-      data.status = dados.status as QuotationStatus;
+      data.status =
+        dados.status as QuotationStatus;
     }
 
+    // ======================================
+    // 15. VERIFICAR SE EXISTEM ALTERAÇÕES
+    // ======================================
+
     if (Object.keys(data).length === 0) {
-      return NextResponse.json(
-        { error: "Não foram fornecidos dados para actualizar." },
-        { status: 400 }
+      return erro(
+        "Não foram fornecidos dados para actualizar.",
+        400
       );
     }
+
+    // ======================================
+    // 16. ACTUALIZAR COTAÇÃO
+    // ======================================
 
     const cotacaoActualizada =
       await prisma.quotation.update({
         where: { id },
+
         data,
+
         include: {
           items: {
             orderBy: {
@@ -292,22 +533,49 @@ export async function PATCH(
         },
       });
 
+    // ======================================
+    // 17. RESPOSTA
+    // ======================================
+
     return NextResponse.json({
-      message: "Cotação actualizada com sucesso.",
+      success: true,
+
+      message:
+        "Cotação actualizada com sucesso.",
+
       quotation: cotacaoActualizada,
+
+      resumo: {
+        subtotalOriginal:
+          cotacaoActualizada.subtotalOriginal.toString(),
+
+        descontoTotal:
+          cotacaoActualizada.discountTotal.toString(),
+
+        total:
+          cotacaoActualizada.total.toString(),
+
+        currency:
+          cotacaoActualizada.currency,
+      },
     });
-
   } catch (error) {
-    console.error("Erro ao actualizar cotação:", error);
+    console.error(
+      "Erro ao actualizar cotação:",
+      error
+    );
 
-    return NextResponse.json(
-      { error: "Não foi possível actualizar a cotação." },
-      { status: 500 }
+    return erro(
+      "Não foi possível actualizar a cotação.",
+      500
     );
   }
 }
 
-// DELETE — Eliminar cotação
+// ==========================================
+// DELETE — ELIMINAR COTAÇÃO
+// ==========================================
+
 export async function DELETE(
   _request: NextRequest,
   { params }: RouteParams
@@ -315,45 +583,72 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    const cotacao = await prisma.quotation.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        status: true,
-      },
-    });
+    if (!validarId(id)) {
+      return erro(
+        "Identificador da cotação inválido.",
+        400
+      );
+    }
+
+    // ======================================
+    // 1. CONSULTAR COTAÇÃO
+    // ======================================
+
+    const cotacao =
+      await prisma.quotation.findUnique({
+        where: { id },
+
+        select: {
+          id: true,
+          status: true,
+        },
+      });
 
     if (!cotacao) {
-      return NextResponse.json(
-        { error: "Cotação não encontrada." },
-        { status: 404 }
+      return erro(
+        "Cotação não encontrada.",
+        404
       );
     }
 
+    // ======================================
+    // 2. PROTEGER COTAÇÕES ACEITES
+    // ======================================
+
     if (cotacao.status === "ACEITE") {
-      return NextResponse.json(
-        {
-          error:
-            "Não é permitido eliminar uma cotação aceite.",
-        },
-        { status: 409 }
+      return erro(
+        "Não é permitido eliminar uma cotação aceite.",
+        409
       );
     }
+
+    // ======================================
+    // 3. ELIMINAR COTAÇÃO
+    // ======================================
 
     await prisma.quotation.delete({
       where: { id },
     });
 
+    // ======================================
+    // 4. RESPOSTA
+    // ======================================
+
     return NextResponse.json({
-      message: "Cotação eliminada com sucesso.",
+      success: true,
+
+      message:
+        "Cotação eliminada com sucesso.",
     });
-
   } catch (error) {
-    console.error("Erro ao eliminar cotação:", error);
+    console.error(
+      "Erro ao eliminar cotação:",
+      error
+    );
 
-    return NextResponse.json(
-      { error: "Não foi possível eliminar a cotação." },
-      { status: 500 }
+    return erro(
+      "Não foi possível eliminar a cotação.",
+      500
     );
   }
 }

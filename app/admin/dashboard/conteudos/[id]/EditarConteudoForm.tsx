@@ -15,6 +15,7 @@ import {
   Upload,
   X,
   List,
+  Play,
 } from "lucide-react";
 
 const tipos = [
@@ -48,9 +49,55 @@ type Conteudo = {
   content: string;
   image: string | null;
   images: string[];
+  videoUrl?: string | null;
   order: number;
   status: string;
 };
+
+function obterYoutubeId(url: string): string | null {
+  if (!url.trim()) return null;
+
+  try {
+    const endereco = new URL(url.trim());
+
+    if (
+      endereco.hostname === "youtu.be" ||
+      endereco.hostname === "www.youtu.be"
+    ) {
+      return endereco.pathname.split("/").filter(Boolean)[0] || null;
+    }
+
+    if (
+      endereco.hostname === "youtube.com" ||
+      endereco.hostname === "www.youtube.com" ||
+      endereco.hostname === "m.youtube.com"
+    ) {
+      if (endereco.pathname === "/watch") {
+        return endereco.searchParams.get("v");
+      }
+
+      const partes = endereco.pathname.split("/").filter(Boolean);
+
+      if (
+        ["embed", "shorts", "live"].includes(partes[0]) &&
+        partes[1]
+      ) {
+        return partes[1];
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function obterEmbedUrl(url: string): string {
+  const videoId = obterYoutubeId(url);
+  return videoId
+    ? `https://www.youtube-nocookie.com/embed/${videoId}`
+    : "";
+}
 
 export default function EditarConteudoForm({
   id,
@@ -61,6 +108,7 @@ export default function EditarConteudoForm({
   const [type, setType] = useState("SERVICOS");
   const [summary, setSummary] = useState("");
   const [content, setContent] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
 
   const [images, setImages] = useState<ImagemItem[]>([]);
   const [principalIndex, setPrincipalIndex] = useState(0);
@@ -75,13 +123,14 @@ export default function EditarConteudoForm({
   const imagesRef = useRef<ImagemItem[]>([]);
 
   const usaImagens = type !== "SERVICOS";
+  const usaVideo = type === "PROJECTOS";
+  const videoId = obterYoutubeId(videoUrl);
+  const embedUrl = obterEmbedUrl(videoUrl);
 
-  // Manter referência actualizada das imagens
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
 
-  // Libertar previews ao sair
   useEffect(() => {
     return () => {
       imagesRef.current.forEach((imagem) => {
@@ -118,6 +167,7 @@ export default function EditarConteudoForm({
         setType(conteudo.type || "SERVICOS");
         setSummary(conteudo.summary || "");
         setContent(conteudo.content || "");
+        setVideoUrl(conteudo.videoUrl || "");
         setOrder(String(conteudo.order ?? 0));
         setStatusActual(conteudo.status || "RASCUNHO");
 
@@ -177,7 +227,6 @@ export default function EditarConteudoForm({
     };
   }, [id]);
 
-  // Seleccionar novas imagens
   function adicionarImagens(ficheiros: FileList | null) {
     if (!ficheiros || !usaImagens) return;
 
@@ -220,7 +269,6 @@ export default function EditarConteudoForm({
     ]);
   }
 
-  // Remover imagem
   function removerImagem(index: number) {
     const imagem = images[index];
 
@@ -232,16 +280,13 @@ export default function EditarConteudoForm({
 
     setImages(novasImagens);
 
-    if (novasImagens.length === 0) {
-      setPrincipalIndex(0);
-    } else if (principalIndex === index) {
+    if (novasImagens.length === 0 || principalIndex === index) {
       setPrincipalIndex(0);
     } else if (principalIndex > index) {
       setPrincipalIndex((anterior) => anterior - 1);
     }
   }
 
-  // Mudar categoria
   function alterarCategoria(novoTipo: string) {
     setType(novoTipo);
 
@@ -254,10 +299,14 @@ export default function EditarConteudoForm({
 
       setImages([]);
       setPrincipalIndex(0);
+      setVideoUrl("");
+    }
+
+    if (novoTipo !== "PROJECTOS") {
+      setVideoUrl("");
     }
   }
 
-  // Guardar alterações
   async function guardar(publicar: boolean) {
     setError("");
 
@@ -298,22 +347,26 @@ export default function EditarConteudoForm({
       return;
     }
 
+    if (usaVideo && videoUrl.trim() && !videoId) {
+      setError(
+        "Introduza um endereço válido do YouTube. Pode utilizar youtube.com/watch?v=... ou youtu.be/..."
+      );
+      return;
+    }
+
     setSaving(true);
 
     try {
-      // Serviços não podem guardar imagens
       let imagensFinais: string[] = [];
       let imagemPrincipal = "";
 
       if (usaImagens) {
-        // 1. Separar imagens novas
         const imagensNovas = images.filter(
           (imagem) => imagem.nova && imagem.file
         );
 
         let urlsCarregadas: string[] = [];
 
-        // 2. Carregar apenas imagens novas
         if (imagensNovas.length > 0) {
           const formData = new FormData();
 
@@ -353,7 +406,6 @@ export default function EditarConteudoForm({
           urlsCarregadas = uploadData.images;
         }
 
-        // 3. Reconstruir galeria na ordem original
         let indiceNova = 0;
 
         imagensFinais = images.map((imagem) => {
@@ -366,11 +418,14 @@ export default function EditarConteudoForm({
           return imagem.url;
         });
 
+        if (imagensFinais.some((url) => !url)) {
+          throw new Error("Uma ou mais imagens não foram carregadas.");
+        }
+
         imagemPrincipal =
           imagensFinais[principalIndex] || "";
       }
 
-      // 4. Actualizar conteúdo
       const response = await fetch(`/api/conteudos/${id}`, {
         method: "PUT",
         headers: {
@@ -383,6 +438,7 @@ export default function EditarConteudoForm({
           content: content.trim(),
           image: imagemPrincipal,
           images: imagensFinais,
+          videoUrl: usaVideo ? videoUrl.trim() || null : null,
           order: ordemNumerica,
           status: publicar ? "PUBLICADO" : "RASCUNHO",
         }),
@@ -438,7 +494,6 @@ export default function EditarConteudoForm({
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 pb-10">
-
       {/* Cabeçalho */}
       <div>
         <Link
@@ -458,13 +513,12 @@ export default function EditarConteudoForm({
         </h1>
 
         <p className="mt-1 text-sm text-gray-500">
-          Actualize as informações, imagens e estado de publicação.
+          Actualize as informações, imagens, vídeo e estado de publicação.
         </p>
       </div>
 
       {/* Informações principais */}
       <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 sm:p-7">
-
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-lime-100 p-2">
             <FileText className="h-5 w-5 text-lime-700" />
@@ -480,7 +534,6 @@ export default function EditarConteudoForm({
           </div>
         </div>
 
-        {/* Título */}
         <div>
           <label htmlFor="title" className="mb-2 block text-sm font-medium text-gray-700">
             Título *
@@ -501,7 +554,6 @@ export default function EditarConteudoForm({
           </p>
         </div>
 
-        {/* Categoria */}
         <div>
           <label htmlFor="type" className="mb-2 block text-sm font-medium text-gray-700">
             Categoria *
@@ -522,7 +574,6 @@ export default function EditarConteudoForm({
           </select>
         </div>
 
-        {/* Resumo */}
         <div>
           <label htmlFor="summary" className="mb-2 block text-sm font-medium text-gray-700">
             Resumo
@@ -544,7 +595,6 @@ export default function EditarConteudoForm({
           </p>
         </div>
 
-        {/* Conteúdo */}
         <div>
           <label
             htmlFor="content"
@@ -580,16 +630,96 @@ export default function EditarConteudoForm({
           <p className="mt-1 text-xs text-gray-400">
             {type === "SERVICOS"
               ? "Cada linha será apresentada como um elemento de uma lista não ordenada."
-              : "Actualize a descrição completa do conteúdo."
-            }
+              : "Actualize a descrição completa do conteúdo."}
           </p>
         </div>
       </section>
 
-      {/* Galeria: apenas Projectos e Soluções */}
+      {/* Vídeo YouTube: apenas Projectos */}
+      {usaVideo && (
+        <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 sm:p-7">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-red-50 p-2">
+              <Play className="h-5 w-5 fill-red-600 text-red-600" />
+            </div>
+
+            <div>
+              <h2 className="font-semibold text-gray-900">
+                Vídeo do projecto
+              </h2>
+              <p className="text-sm text-gray-500">
+                Adicione um vídeo do YouTube para apresentar o projecto.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="videoUrl"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              Endereço do vídeo no YouTube
+            </label>
+
+            <input
+              id="videoUrl"
+              type="url"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              disabled={saving}
+              placeholder="https://www.youtube.com/watch?v=..."
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-lime-500 disabled:bg-gray-100"
+            />
+
+            <p className="mt-2 text-xs text-gray-500">
+              Aceita links youtube.com/watch, youtu.be, shorts e live.
+              O vídeo é opcional.
+            </p>
+          </div>
+
+          {videoUrl.trim() && (
+            videoId ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+                  <Check size={16} />
+                  Endereço válido do YouTube
+                </div>
+
+                <div className="overflow-hidden rounded-xl border bg-gray-950">
+                  <div className="aspect-video">
+                    <iframe
+                      src={embedUrl}
+                      title="Pré-visualização do vídeo do projecto"
+                      className="h-full w-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setVideoUrl("")}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <X size={15} />
+                  Remover vídeo
+                </button>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                O endereço introduzido ainda não parece ser um link válido do YouTube.
+              </p>
+            )
+          )}
+        </section>
+      )}
+
+      {/* Galeria */}
       {usaImagens && (
         <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 sm:p-7">
-
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-lime-100 p-2">
               <ImageIcon className="h-5 w-5 text-lime-700" />

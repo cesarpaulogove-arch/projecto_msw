@@ -49,6 +49,47 @@ function validarUrlImagem(valor: string): boolean {
   }
 }
 
+// Validar endereço do YouTube
+function validarUrlYouTube(valor: string): boolean {
+  try {
+    const endereco = new URL(valor);
+
+    const hostname = endereco.hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
+
+    const dominiosValidos = [
+      "youtube.com",
+      "m.youtube.com",
+      "youtu.be",
+      "youtube-nocookie.com",
+    ];
+
+    if (!dominiosValidos.includes(hostname)) {
+      return false;
+    }
+
+    if (hostname === "youtu.be") {
+      return Boolean(
+        endereco.pathname.split("/").filter(Boolean)[0]
+      );
+    }
+
+    if (endereco.pathname === "/watch") {
+      return Boolean(endereco.searchParams.get("v"));
+    }
+
+    const partes = endereco.pathname.split("/").filter(Boolean);
+
+    return (
+      ["embed", "shorts", "live"].includes(partes[0]) &&
+      Boolean(partes[1])
+    );
+  } catch {
+    return false;
+  }
+}
+
 // GET - Consultar conteúdo pelo ID
 export async function GET(
   _request: NextRequest,
@@ -146,11 +187,41 @@ export async function PUT(
       );
     }
 
-    // Conteúdo opcional
+    // Conteúdo
     const content =
       typeof dados.content === "string"
         ? dados.content.trim()
         : "";
+
+    // Vídeo YouTube
+    let videoUrl: string | null = null;
+
+    if (type === "PROJECTOS") {
+      if (
+        dados.videoUrl !== undefined &&
+        dados.videoUrl !== null &&
+        typeof dados.videoUrl !== "string"
+      ) {
+        return respostaErro(
+          "O endereço do vídeo tem um formato inválido."
+        );
+      }
+
+      const enderecoVideo =
+        typeof dados.videoUrl === "string"
+          ? dados.videoUrl.trim()
+          : "";
+
+      if (enderecoVideo) {
+        if (!validarUrlYouTube(enderecoVideo)) {
+          return respostaErro(
+            "Introduza um endereço válido do YouTube."
+          );
+        }
+
+        videoUrl = enderecoVideo;
+      }
+    }
 
     // Imagem principal
     let image: string | null = null;
@@ -238,6 +309,12 @@ export async function PUT(
       );
     }
 
+    // Serviços não utilizam galeria
+    if (type === "SERVICOS") {
+      image = null;
+      imagensFinais.length = 0;
+    }
+
     // Ordem
     const order =
       dados.order === undefined
@@ -283,6 +360,7 @@ export async function PUT(
         content,
         image,
         images: imagensFinais,
+        videoUrl,
         order,
         status,
         publishedAt,
