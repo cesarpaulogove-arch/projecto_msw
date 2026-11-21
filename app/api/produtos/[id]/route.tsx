@@ -108,9 +108,261 @@ async function removerImagemSeNaoUtilizada(
   }
 }
 
+
+
+
+const MAX_PRODUTOS_RELACIONADOS = 5;
+const MAX_CANDIDATOS = 120;
+
+// Palavras que não ajudam a identificar semelhanças.
+const STOP_WORDS = new Set([
+  "para", "com", "sem", "por", "uma", "uns",
+  "das", "dos", "que", "the", "and", "for",
+  "produto", "produtos", "modelo", "novo",
+  "nova", "unidade", "kit", "tipo", "versao",
+]);
+
+function normalizarTexto(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function extrairPalavras(texto: string | null | undefined) {
+  if (!texto) return [];
+
+  return [
+    ...new Set(
+      normalizarTexto(texto)
+        .split(/\s+/)
+        .filter(
+          (palavra) =>
+            palavra.length >= 2 &&
+            !STOP_WORDS.has(palavra)
+        )
+    ),
+  ];
+}
+
+// Identifica famílias tecnológicas e componentes relacionados.
+const FAMILIAS_TECNOLOGICAS: Record<string, string[]> = {
+  esp32: ["esp32", "esp32 cam", "esp32cam"],
+  esp8266: ["esp8266", "nodemcu", "esp 12"],
+  arduino: ["arduino", "atmega328", "uno", "mega", "nano"],
+  raspberry: ["raspberry pi", "raspberry", "raspi"],
+  sensores: [
+    "sensor", "dht11", "dht22", "bmp280",
+    "mq2", "mq6", "ldr", "ultrassonico",
+  ],
+  comunicacao: [
+    "bluetooth", "wifi", "gsm", "sim800",
+    "rfid", "nfc", "lora", "zigbee",
+  ],
+  alimentacao: [
+    "fonte", "conversor", "regulador",
+    "buck", "boost", "step down", "step up",
+  ],
+  prototipagem: [
+    "breadboard", "protoboard", "jumper",
+    "jumpers", "pcb",
+  ],
+  acionamento: [
+    "rele", "relay", "motor", "servo",
+    "driver", "ponte h",
+  ],
+};
+
+function identificarFamilias(texto: string) {
+  const normalizado = normalizarTexto(texto);
+
+  return Object.entries(FAMILIAS_TECNOLOGICAS)
+    .filter(([, termos]) =>
+      termos.some((termo) => {
+        const termoNormalizado = normalizarTexto(termo);
+
+        return normalizado.includes(termoNormalizado);
+      })
+    )
+    .map(([familia]) => familia);
+}
+
+function calcularRelevancia(
+  produtoBase: {
+    name: string;
+    description: string | null;
+    categoryId: string;
+    category: { name: string };
+  },
+  candidato: {
+    id: string;
+    name: string;
+    description: string | null;
+    categoryId: string;
+    category: { name: string };
+    featured: boolean;
+    inStock: boolean;
+    rating: number;
+  }
+) {
+  let pontuacao = 0;
+
+  const nomeBase = extrairPalavras(produtoBase.name);
+  const nomeCandidato = extrairPalavras(candidato.name);
+
+  const descricaoBase = extrairPalavras(
+    produtoBase.description
+  );
+
+  const descricaoCandidato = extrairPalavras(
+    candidato.description
+  );
+
+  const palavrasBase = new Set([
+    ...nomeBase,
+    ...descricaoBase,
+  ]);
+
+  const palavrasCandidato = new Set([
+    ...nomeCandidato,
+    ...descricaoCandidato,
+  ]);
+
+  // Mesma categoria.
+  if (produtoBase.categoryId === candidato.categoryId) {
+    pontuacao += 30;
+  }
+
+  // Correspondência de palavras no nome.
+  const palavrasNomeComuns = nomeBase.filter((palavra) =>
+    nomeCandidato.includes(palavra)
+  );
+
+  pontuacao += Math.min(
+    palavrasNomeComuns.length * 12,
+    36
+  );
+
+  // Correspondência entre descrições.
+  const palavrasDescricaoComuns = descricaoBase.filter(
+    (palavra) => palavrasCandidato.has(palavra)
+  );
+
+  pontuacao += Math.min(
+    palavrasDescricaoComuns.length * 3,
+    15
+  );
+
+  // Relação tecnológica.
+  const textoBase = [
+    produtoBase.name,
+    produtoBase.description ?? "",
+  ].join(" ");
+
+  const textoCandidato = [
+    candidato.name,
+    candidato.description ?? "",
+  ].join(" ");
+
+  const familiasBase = identificarFamilias(textoBase);
+  const familiasCandidato = identificarFamilias(
+    textoCandidato
+  );
+
+  const familiasComuns = familiasBase.filter((familia) =>
+    familiasCandidato.includes(familia)
+  );
+
+  pontuacao += Math.min(
+    familiasComuns.length * 20,
+    40
+  );
+
+  // Produtos complementares:
+  // Relações intencionais entre componentes.
+  const complementares: Record<string, string[]> = {
+    esp32: [
+      "sensores",
+      "comunicacao",
+      "alimentacao",
+      "prototipagem",
+      "acionamento",
+    ],
+    esp8266: [
+      "sensores",
+      "comunicacao",
+      "alimentacao",
+      "prototipagem",
+      "acionamento",
+    ],
+    arduino: [
+      "sensores",
+      "alimentacao",
+      "prototipagem",
+      "acionamento",
+      "comunicacao",
+    ],
+    raspberry: [
+      "sensores",
+      "comunicacao",
+      "alimentacao",
+      "prototipagem",
+    ],
+  };
+
+  const familiasComplementares = new Set(
+    familiasBase.flatMap(
+      (familia) => complementares[familia] ?? []
+    )
+  );
+
+  const relacaoComplementar = familiasCandidato.some(
+    (familia) => familiasComplementares.has(familia)
+  );
+
+  // A pontuação complementar só é aplicada a outra categoria.
+  if (
+    relacaoComplementar &&
+    produtoBase.categoryId !== candidato.categoryId
+  ) {
+    pontuacao += 20;
+  }
+
+  if (candidato.featured) {
+    pontuacao += 5;
+  }
+
+  if (candidato.rating > 0) {
+    pontuacao += Math.min(
+      (candidato.rating / 5) * 5,
+      5
+    );
+  }
+
+  if (candidato.inStock) {
+    pontuacao += 5;
+  }
+
+  // Evitar relações baseadas apenas em palavras genéricas.
+  const temCorrespondencia =
+    palavrasNomeComuns.length > 0 ||
+    palavrasDescricaoComuns.length > 1 ||
+    familiasComuns.length > 0 ||
+    relacaoComplementar;
+
+  return {
+    pontuacao,
+    relevante: temCorrespondencia && pontuacao >= 15,
+  };
+}
+
+
 // ======================================================
 // GET — CONSULTAR PRODUTO E PRODUTOS RELACIONADOS
 // ======================================================
+
 
 export async function GET(
   request: NextRequest,
@@ -128,6 +380,7 @@ export async function GET(
 
     const identificador = decodeURIComponent(id).trim();
 
+    // 1. Consultar produto principal.
     const produto = await prisma.product.findFirst({
       where: {
         active: true,
@@ -148,28 +401,101 @@ export async function GET(
       );
     }
 
-    const relacionados = await prisma.product.findMany({
-      where: {
-        active: true,
-        categoryId: produto.categoryId,
-        id: {
-          not: produto.id,
+    // 2. Procurar candidatos.
+    // Primeiro produtos da mesma categoria.
+    const candidatosMesmaCategoria =
+      await prisma.product.findMany({
+        where: {
+          active: true,
+          id: { not: produto.id },
+          categoryId: produto.categoryId,
         },
-      },
-      include: {
-        category: true,
-      },
-      orderBy: [
-        { featured: "desc" },
-        { createdAt: "desc" },
-      ],
-      take: 8,
-    });
+        include: {
+          category: true,
+        },
+        orderBy: [
+          { inStock: "desc" },
+          { featured: "desc" },
+          { rating: "desc" },
+          { createdAt: "desc" },
+        ],
+        take: MAX_CANDIDATOS,
+      });
 
+    // 3. Procurar candidatos de outras categorias.
+    // Limitamos a consulta para evitar percorrer todo o catálogo.
+    const candidatosOutrasCategorias =
+      await prisma.product.findMany({
+        where: {
+          active: true,
+          inStock: true,
+          id: {
+            not: produto.id,
+          },
+          categoryId: {
+            not: produto.categoryId,
+          },
+        },
+        include: {
+          category: true,
+        },
+        orderBy: [
+          { featured: "desc" },
+          { rating: "desc" },
+          { createdAt: "desc" },
+        ],
+        take: MAX_CANDIDATOS,
+      });
+
+    // 4. Unificar candidatos.
+    const candidatos = [
+      ...candidatosMesmaCategoria,
+      ...candidatosOutrasCategorias,
+    ];
+
+    // 5. Calcular relevância.
+    const classificados = candidatos
+      .map((candidato) => {
+        const resultado = calcularRelevancia(
+          produto,
+          candidato
+        );
+
+        return {
+          produto: candidato,
+          pontuacao: resultado.pontuacao,
+          relevante: resultado.relevante,
+        };
+      })
+      .filter((item) => item.relevante)
+      .sort((a, b) => {
+        // Primeiro, maior relevância.
+        if (b.pontuacao !== a.pontuacao) {
+          return b.pontuacao - a.pontuacao;
+        }
+
+        // Em caso de empate, disponibilidade.
+        if (
+          a.produto.inStock !== b.produto.inStock
+        ) {
+          return a.produto.inStock ? -1 : 1;
+        }
+
+        // Depois, melhor avaliação.
+        return b.produto.rating - a.produto.rating;
+      });
+
+    // 6. Máximo absoluto de cinco produtos.
+    const relacionados = classificados
+      .slice(0, MAX_PRODUTOS_RELACIONADOS)
+      .map((item) => item.produto);
+
+    // 7. Resposta.
     return NextResponse.json(
       {
         produto,
         relacionados,
+        totalRelacionados: relacionados.length,
       },
       {
         headers: {
@@ -177,6 +503,7 @@ export async function GET(
         },
       }
     );
+
   } catch (error) {
     console.error(
       "Erro ao consultar detalhes do produto:",
@@ -191,6 +518,7 @@ export async function GET(
     );
   }
 }
+
 
 // ======================================================
 // PATCH — ACTUALIZAR PRODUTO
