@@ -202,9 +202,6 @@ function HomeContent() {
         <div className="mb-5 sm:mb-8">
           <h2 className="text-base font-black uppercase tracking-wide text-[#071B2D] sm:text-2xl">
             CATÁLOGO DOS PRODUTOS
-            <span className="text-cyan-600">
-              {" "}— MSW BUSINESS
-            </span>
           </h2>
 
           {pesquisa && (
