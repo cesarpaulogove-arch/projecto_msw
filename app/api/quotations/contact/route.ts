@@ -1,5 +1,5 @@
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, connection } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getClientSession } from "@/lib/client-session";
 
@@ -8,8 +8,13 @@ const headersNoCache = {
 };
 
 export async function GET(request: NextRequest) {
+  // IMPORTANTE:
+  // Deve ficar fora do try/catch para o Next.js
+  // controlar correctamente a interrupção do prerender.
+  await connection();
+
   try {
-    // 1. Verificar primeiro se existe uma sessão autenticada
+    // 1. Verificar se existe uma sessão autenticada
     const sessao = await getClientSession();
 
     if (sessao) {
@@ -33,7 +38,9 @@ export async function GET(request: NextRequest) {
         cliente.role !== "CLIENTE"
       ) {
         return NextResponse.json(
-          { error: "Sessão de cliente inválida. Faça login novamente." },
+          {
+            error: "Sessão de cliente inválida. Faça login novamente.",
+          },
           {
             status: 401,
             headers: headersNoCache,
@@ -41,8 +48,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // 2. Procurar a última cotação para recuperar
-      // os dados específicos de cada cotação
+      // 2. Procurar a última cotação do cliente
       const ultimaCotacao = cliente.phone
         ? await prisma.quotation.findFirst({
             where: {
@@ -60,8 +66,7 @@ export async function GET(request: NextRequest) {
           })
         : null;
 
-      // 3. Os dados pessoais vêm sempre da conta autenticada.
-      // Os dados empresariais vêm da última cotação, quando existirem.
+      // 3. Devolver os dados da conta e da última cotação
       return NextResponse.json(
         {
           authenticated: true,
@@ -72,7 +77,9 @@ export async function GET(request: NextRequest) {
             email: cliente.email ?? "",
             customerType:
               ultimaCotacao?.customerType ??
-              (ultimaCotacao?.company ? "COMPANY" : "INDIVIDUAL"),
+              (ultimaCotacao?.company
+                ? "COMPANY"
+                : "INDIVIDUAL"),
             company: ultimaCotacao?.company ?? "",
             nuit: ultimaCotacao?.nuit ?? "",
             address: ultimaCotacao?.address ?? "",
@@ -84,14 +91,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 4. Sem sessão: manter o comportamento anterior,
-    // procurando o contacto pelo telefone
-    const url = new URL(request.url);
-    const phone = url.searchParams.get("phone")?.trim();
+    // 4. Sem sessão: procurar contacto pelo telefone
+    const phone = request.nextUrl.searchParams
+      .get("phone")
+      ?.trim();
 
     if (!phone || phone.length < 7 || phone.length > 40) {
       return NextResponse.json(
-        { error: "Número de telefone inválido." },
+        {
+          error: "Número de telefone inválido.",
+        },
         {
           status: 400,
           headers: headersNoCache,
@@ -99,6 +108,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 5. Procurar a última cotação associada ao telefone
     const cotacao = await prisma.quotation.findFirst({
       where: {
         phone,
@@ -130,16 +140,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 6. Devolver os dados encontrados
     return NextResponse.json(
       {
         authenticated: false,
         found: true,
         customer: {
           ...cotacao,
-          // Compatibilidade com registos antigos
           customerType:
             cotacao.customerType ??
-            (cotacao.company ? "COMPANY" : "INDIVIDUAL"),
+            (cotacao.company
+              ? "COMPANY"
+              : "INDIVIDUAL"),
         },
       },
       {
@@ -150,7 +162,9 @@ export async function GET(request: NextRequest) {
     console.error("Erro ao verificar contacto:", error);
 
     return NextResponse.json(
-      { error: "Não foi possível verificar o contacto." },
+      {
+        error: "Não foi possível verificar o contacto.",
+      },
       {
         status: 500,
         headers: headersNoCache,

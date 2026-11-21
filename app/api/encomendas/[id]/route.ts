@@ -12,8 +12,6 @@ import { Prisma } from "@/generated/prisma/client";
 // CONFIGURAÇÕES
 // =====================================================
 
-export const dynamic = "force-dynamic";
-
 type RouteParams = {
   params: Promise<{
     id: string;

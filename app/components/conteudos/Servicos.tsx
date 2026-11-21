@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { BriefcaseBusiness } from "lucide-react";
 import ConteudoCard from "./ConteudoCard";
 
-
 export default async function Servicos() {
   const servicos = await prisma.siteContent.findMany({
     where: {
@@ -20,9 +19,11 @@ export default async function Servicos() {
     return (
       <div className="rounded-2xl border bg-white p-10 text-center">
         <BriefcaseBusiness className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+
         <h2 className="text-xl font-semibold text-gray-900">
           Serviços em preparação
         </h2>
+
         <p className="mt-2 text-gray-500">
           Estamos a preparar os nossos serviços.
           Em breve teremos novidades.
@@ -36,6 +37,7 @@ export default async function Servicos() {
       {servicos.map((servico) => (
         <ConteudoCard
           key={servico.id}
+          id={servico.id}
           title={servico.title}
           summary={servico.summary}
           content={servico.content}

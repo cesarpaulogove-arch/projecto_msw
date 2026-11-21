@@ -1,9 +1,15 @@
 
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+  connection,
+} from "next/server";
+
 import { OAuth2Client } from "google-auth-library";
 import { timingSafeEqual } from "crypto";
 
 import { prisma } from "@/lib/prisma";
+
 import {
   createClientSessionToken,
   CLIENT_SESSION_COOKIE,
@@ -19,6 +25,10 @@ import {
 const STATE_COOKIE = "msw_google_oauth_state";
 const REDIRECT_COOKIE = "msw_google_oauth_redirect";
 
+// ==========================================
+// COMPARAÇÃO SEGURA
+// ==========================================
+
 function safeCompare(a: string, b: string): boolean {
   const bufferA = Buffer.from(a);
   const bufferB = Buffer.from(b);
@@ -30,6 +40,10 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufferA, bufferB);
 }
 
+// ==========================================
+// CONFIGURAÇÃO GOOGLE OAUTH
+// ==========================================
+
 function getGoogleClient() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -39,8 +53,16 @@ function getGoogleClient() {
     throw new Error("Configuração Google OAuth incompleta.");
   }
 
-  return new OAuth2Client(clientId, clientSecret, redirectUri);
+  return new OAuth2Client(
+    clientId,
+    clientSecret,
+    redirectUri
+  );
 }
+
+// ==========================================
+// DESTINO APÓS AUTENTICAÇÃO
+// ==========================================
 
 function obterDestino(request: NextRequest): string {
   const valor = request.cookies.get(REDIRECT_COOKIE)?.value;
@@ -48,7 +70,10 @@ function obterDestino(request: NextRequest): string {
   if (!valor) return "/";
 
   try {
-    const destino = new URL(valor, request.nextUrl.origin);
+    const destino = new URL(
+      valor,
+      request.nextUrl.origin
+    );
 
     if (destino.origin !== request.nextUrl.origin) {
       return "/";
@@ -60,17 +85,28 @@ function obterDestino(request: NextRequest): string {
   }
 }
 
+// ==========================================
+// LIMPEZA DOS COOKIES OAUTH
+// ==========================================
+
 function limparCookiesOAuth(response: NextResponse) {
   response.cookies.delete(STATE_COOKIE);
   response.cookies.delete(REDIRECT_COOKIE);
 }
+
+// ==========================================
+// REDIRECCIONAMENTO COM ERRO
+// ==========================================
 
 function redirectWithError(
   request: NextRequest,
   error: string
 ) {
   const response = NextResponse.redirect(
-    new URL(`/?googleError=${encodeURIComponent(error)}`, request.url)
+    new URL(
+      `/?googleError=${encodeURIComponent(error)}`,
+      request.url
+    )
   );
 
   limparCookiesOAuth(response);
@@ -78,6 +114,10 @@ function redirectWithError(
 
   return response;
 }
+
+// ==========================================
+// CONCLUSÃO DO REGISTO
+// ==========================================
 
 function prepararConclusaoRegisto(
   request: NextRequest,
@@ -116,16 +156,30 @@ function prepararConclusaoRegisto(
   return response;
 }
 
+// ==========================================
+// CALLBACK GOOGLE OAUTH
+// ==========================================
+
 export async function GET(request: NextRequest) {
+  // IMPORTANTE:
+  // Deve ficar fora do try/catch para permitir
+  // que o Next.js controle a interrupção do prerender.
+  await connection();
+
   try {
     const code = request.nextUrl.searchParams.get("code");
     const returnedState = request.nextUrl.searchParams.get("state");
     const googleError = request.nextUrl.searchParams.get("error");
 
+    // 1. Verificar cancelamento do Google
     if (googleError) {
-      return redirectWithError(request, "cancelled");
+      return redirectWithError(
+        request,
+        "cancelled"
+      );
     }
 
+    // 2. Validar STATE
     const storedState = request.cookies.get(STATE_COOKIE)?.value;
 
     if (
@@ -134,18 +188,28 @@ export async function GET(request: NextRequest) {
       !storedState ||
       !safeCompare(returnedState, storedState)
     ) {
-      return redirectWithError(request, "invalid_state");
+      return redirectWithError(
+        request,
+        "invalid_state"
+      );
     }
 
+    // 3. Recuperar destino
     const destino = obterDestino(request);
 
+    // 4. Obter tokens do Google
     const client = getGoogleClient();
+
     const { tokens } = await client.getToken(code);
 
     if (!tokens.id_token) {
-      return redirectWithError(request, "invalid_token");
+      return redirectWithError(
+        request,
+        "invalid_token"
+      );
     }
 
+    // 5. Validar identidade Google
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -159,15 +223,21 @@ export async function GET(request: NextRequest) {
       !payload.email ||
       payload.email_verified !== true
     ) {
-      return redirectWithError(request, "email_not_verified");
+      return redirectWithError(
+        request,
+        "email_not_verified"
+      );
     }
 
     const googleId = payload.sub;
     const email = payload.email.trim().toLowerCase();
     const name = payload.name?.trim() || "Cliente Google";
 
+    // 6. Procurar utilizador pelo Google ID
     const existingGoogleUser = await prisma.user.findUnique({
-      where: { googleId },
+      where: {
+        googleId,
+      },
       select: {
         id: true,
         name: true,
@@ -180,13 +250,18 @@ export async function GET(request: NextRequest) {
     });
 
     if (existingGoogleUser) {
+      // 7. Verificar estado da conta
       if (
         existingGoogleUser.role !== "CLIENTE" ||
         !existingGoogleUser.active
       ) {
-        return redirectWithError(request, "account_unavailable");
+        return redirectWithError(
+          request,
+          "account_unavailable"
+        );
       }
 
+      // 8. Completar registo quando faltam dados
       if (
         !existingGoogleUser.phone ||
         !existingGoogleUser.password
@@ -198,6 +273,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      // 9. Criar sessão do cliente
       const sessionToken = createClientSessionToken({
         id: existingGoogleUser.id,
         phone: existingGoogleUser.phone,
@@ -227,24 +303,41 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
+    // 10. Verificar se já existe uma conta com o email
     // Não associar automaticamente uma conta antiga
     // apenas porque tem o mesmo endereço de email.
     const existingEmailUser = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true },
+      where: {
+        email,
+      },
+      select: {
+        id: true,
+      },
     });
 
     if (existingEmailUser) {
-      return redirectWithError(request, "account_exists");
+      return redirectWithError(
+        request,
+        "account_exists"
+      );
     }
 
+    // 11. Preparar criação de uma nova conta
     return prepararConclusaoRegisto(request, {
       googleId,
       email,
       name,
     });
+
   } catch (error) {
-    console.error("Erro no callback Google OAuth:", error);
-    return redirectWithError(request, "authentication_failed");
+    console.error(
+      "Erro no callback Google OAuth:",
+      error
+    );
+
+    return redirectWithError(
+      request,
+      "authentication_failed"
+    );
   }
 }
