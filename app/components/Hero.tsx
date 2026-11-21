@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const imagens = [
   {
@@ -58,26 +57,6 @@ export default function Hero() {
           }`}
           />
         ))}
-
-        {/* Imagem anterior */}
-        <button
-          type="button"
-          onClick={anterior}
-          aria-label="Imagem anterior"
-          className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white transition hover:bg-cyan-500"
-        >
-          <ChevronLeft size={20} />
-        </button>
-
-        {/* Imagem seguinte */}
-        <button
-          type="button"
-          onClick={seguinte}
-          aria-label="Imagem seguinte"
-          className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white transition hover:bg-cyan-500"
-        >
-          <ChevronRight size={20} />
-        </button>
 
       </div>
     </section>

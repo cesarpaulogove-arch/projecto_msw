@@ -1,6 +1,6 @@
 
 import Link from "next/link";
-import { Wrench, Cpu, Lightbulb, ArrowRight } from "lucide-react";
+import { Wrench, Cpu, ArrowRight } from "lucide-react";
 
 const blocks = [
   {
@@ -15,19 +15,13 @@ const blocks = [
     icon: Cpu,
     href: "/projectos",
   },
-  {
-    title: "SOLUÇÕES",
-    description: "Tecnologia, componentes e inovação",
-    icon: Lightbulb,
-    href: "/solucoes",
-  },
 ];
 
 export default function InfoBlocks() {
   return (
     <section className="w-full border-b border-gray-100 bg-white">
       <div className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid grid-cols-1 items-center md:grid-cols-3">
+        <div className="grid grid-cols-1 items-center md:grid-cols-2">
           {blocks.map((block, index) => {
             const Icon = block.icon;
 
@@ -37,7 +31,7 @@ export default function InfoBlocks() {
                 href={block.href}
                 aria-label={`${block.title}: ${block.description}`}
                 className={`group flex items-center justify-center gap-4 rounded-xl py-4 transition-all duration-300 hover:bg-cyan-50 md:py-4 ${
-                  index !== 2
+                  index === 0
                     ? "md:border-r md:border-gray-200 md:rounded-none"
                     : ""
                 }`}
