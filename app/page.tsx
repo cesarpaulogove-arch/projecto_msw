@@ -30,8 +30,8 @@ interface ApiProduct {
   promotion?: boolean;
 }
 
-const PRODUTOS_INICIAIS = 12;
-const PRODUTOS_POR_CARGA = 12;
+const PRODUTOS_INICIAIS = 15;
+const PRODUTOS_POR_CARGA = 15;
 
 function HomeContent() {
   const [products, setProducts] = useState<ProdutoCarrinho[]>([]);
@@ -276,7 +276,13 @@ function HomeContent() {
         {!loading && !error && products.length > 0 && (
           <>
 
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5 lg:gap-4">
+           <div
+                className="
+                  grid grid-cols-3 gap-2
+                  sm:grid-cols-3 sm:gap-3
+                  lg:grid-cols-5 lg:gap-4
+                "
+              >
               {produtosVisiveis.map((product) => (
                 <div
                   key={product.id}

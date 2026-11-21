@@ -47,7 +47,6 @@ async function gerarSlugUnico(nome: string) {
   return slug;
 }
 
-// GET - Consultar e pesquisar produtos activos por nome ou código
 export async function GET(request: NextRequest) {
   try {
     const pesquisa = request.nextUrl.searchParams
@@ -57,7 +56,6 @@ export async function GET(request: NextRequest) {
     const produtos = await prisma.product.findMany({
       where: {
         active: true,
-
         ...(pesquisa
           ? {
               OR: [
@@ -91,10 +89,17 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Erro ao consultar produtos:", error);
+    console.error("ERRO GET PRODUTOS:", error);
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("PRISMA CODE:", error.code);
+      console.error("PRISMA META:", error.meta);
+    }
 
     return NextResponse.json(
-      { error: "Não foi possível consultar os produtos." },
+      {
+        error: "Não foi possível consultar os produtos.",
+      },
       { status: 500 }
     );
   }
