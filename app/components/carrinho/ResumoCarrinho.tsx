@@ -8,6 +8,7 @@ import {
   Truck,
   ShieldCheck,
   PackageCheck,
+  MapPin,
 } from "lucide-react";
 
 interface ResumoCarrinhoProps {
@@ -24,7 +25,9 @@ export default function ResumoCarrinho({
   carregando = false,
 }: ResumoCarrinhoProps) {
   const entregaConfirmada = custoEntrega !== undefined;
+
   const total = totalProdutos + (custoEntrega ?? 0);
+
   const bloqueado = quantidadeTotal === 0 || carregando;
 
   function formatarPreco(valor: number) {
@@ -70,18 +73,48 @@ export default function ResumoCarrinho({
           Entrega
         </span>
 
-        <span className="font-semibold text-amber-600">
+        <span
+          className={`font-semibold ${
+            entregaConfirmada ? "text-green-700" : "text-amber-600"
+          }`}
+        >
           {entregaConfirmada
             ? formatarPreco(custoEntrega)
-            : "A confirmar"}
+            : "Por confirmar"}
         </span>
       </div>
 
+      {/* INFORMAÇÃO SOBRE ENTREGA */}
+      {!entregaConfirmada && (
+        <div className="mt-4 rounded-xl border border-cyan-100 bg-cyan-50 p-3">
+          <p className="flex items-center gap-2 text-xs font-bold text-[#071B2D]">
+            <MapPin size={15} className="text-cyan-700" />
+            Taxas de entrega
+          </p>
+
+          <div className="mt-2 space-y-1 text-xs text-gray-600">
+            <div className="flex justify-between">
+              <span>Maputo</span>
+              <span className="font-semibold">400,00 MT</span>
+            </div>
+
+            <div className="flex justify-between">
+              <span>Matola</span>
+              <span className="font-semibold">900,00 MT</span>
+            </div>
+          </div>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+            A taxa aplicável será adicionada após a seleção da zona de entrega.
+          </p>
+        </div>
+      )}
+
       {/* TOTAL FINAL */}
       <div className="mt-6 border-t border-gray-200 pt-5">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span className="text-base font-bold text-[#071B2D]">
-            Total da compra
+            {entregaConfirmada ? "Total da compra" : "Subtotal"}
           </span>
 
           <span className="text-2xl font-black text-cyan-700">
@@ -91,8 +124,8 @@ export default function ResumoCarrinho({
 
         {!entregaConfirmada && (
           <p className="mt-2 text-xs leading-relaxed text-gray-500">
-            O valor apresentado não inclui a entrega. O custo será
-            confirmado pela equipa MSW BUSINESS.
+            Este valor corresponde apenas aos produtos. A entrega será
+            adicionada na finalização da encomenda.
           </p>
         )}
       </div>

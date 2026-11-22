@@ -3,6 +3,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+
 import {
   ShoppingCart,
   Trash2,
@@ -30,10 +31,20 @@ export default function CarrinhoPage() {
     todosSelecionados,
     totalSelecionado,
     quantidadeSelecionada,
+    subtotalOriginal,
+    descontoTotal,
     limpar,
   } = useCarrinho();
 
   const temSelecionados = itensSelecionados.length > 0;
+
+  // Não permitir finalizar com produtos indisponíveis.
+  const temProdutoIndisponivel = itensSelecionados.some(
+    (item) => !item.produto.inStock
+  );
+
+  const podeFinalizar =
+    temSelecionados && !temProdutoIndisponivel;
 
   const formatarPreco = (valor: number) =>
     new Intl.NumberFormat("pt-MZ", {
@@ -42,36 +53,17 @@ export default function CarrinhoPage() {
       minimumFractionDigits: 2,
     }).format(valor);
 
-  // =====================================================
-  // CÁLCULO DOS PREÇOS E DESCONTOS
-  // =====================================================
-
-  const subtotalOriginal = itensSelecionados.reduce(
-    (total, item) => {
-      const precoOriginal =
-        item.produto.oldPrice !== null &&
-        item.produto.oldPrice !== undefined &&
-        item.produto.oldPrice > item.produto.price
-          ? item.produto.oldPrice
-          : item.produto.price;
-
-      return total + precoOriginal * item.quantidade;
-    },
-    0
-  );
-
   const totalComDesconto = totalSelecionado;
 
-  const totalPoupado = Math.max(
-    0,
-    subtotalOriginal - totalComDesconto
-  );
+  const totalPoupado = Math.max(0, descontoTotal);
 
   const temDesconto = totalPoupado > 0;
 
   const percentagemPoupada =
     subtotalOriginal > 0
-      ? Math.round((totalPoupado / subtotalOriginal) * 100)
+      ? Math.round(
+          (totalPoupado / subtotalOriginal) * 100
+        )
       : 0;
 
   return (
@@ -138,7 +130,6 @@ export default function CarrinhoPage() {
 
               {/* SELECCIONAR TODOS */}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-
                 <label className="flex cursor-pointer items-center gap-3">
                   <input
                     type="checkbox"
@@ -168,8 +159,8 @@ export default function CarrinhoPage() {
                   `/produtos/${encodeURIComponent(produto.id)}`;
 
                 const temDescontoProduto =
+                  produto.promotion === true &&
                   produto.oldPrice !== null &&
-                  produto.oldPrice !== undefined &&
                   produto.oldPrice > produto.price;
 
                 const poupancaProduto = temDescontoProduto
@@ -192,11 +183,16 @@ export default function CarrinhoPage() {
                     role="group"
                     aria-label={`Produto ${produto.name}`}
                     tabIndex={0}
-                    onClick={() => alternarSelecao(produto.id)}
+                    onClick={() =>
+                      alternarSelecao(produto.id)
+                    }
                     onKeyDown={(e) => {
                       if (e.target !== e.currentTarget) return;
 
-                      if (e.key === "Enter" || e.key === " ") {
+                      if (
+                        e.key === "Enter" ||
+                        e.key === " "
+                      ) {
                         e.preventDefault();
                         alternarSelecao(produto.id);
                       }
@@ -216,7 +212,9 @@ export default function CarrinhoPage() {
                         onChange={() =>
                           alternarSelecao(produto.id)
                         }
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) =>
+                          e.stopPropagation()
+                        }
                         className="h-5 w-5 cursor-pointer accent-cyan-600"
                         aria-label={`Seleccionar ${produto.name}`}
                       />
@@ -345,7 +343,10 @@ export default function CarrinhoPage() {
 
                       <button
                         type="button"
-                        disabled={!produto.inStock}
+                        disabled={
+                          !produto.inStock ||
+                          item.quantidade >= 99
+                        }
                         onClick={() =>
                           atualizarQuantidade(
                             produto.id,
@@ -380,7 +381,6 @@ export default function CarrinhoPage() {
 
               {/* ACÇÕES DO CARRINHO */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-
                 <button
                   type="button"
                   onClick={() => selecionarTodos(false)}
@@ -404,7 +404,6 @@ export default function CarrinhoPage() {
 
             {/* RESUMO DA COMPRA */}
             <aside className="h-fit rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-
               <h2 className="text-lg font-bold text-[#071B2D]">
                 Resumo da compra
               </h2>
@@ -476,9 +475,9 @@ export default function CarrinhoPage() {
 
               <div className="my-5 border-t border-gray-200" />
 
-              {/* TOTAL FINAL */}
+              {/* TOTAL DOS PRODUTOS */}
               <div className="flex justify-between gap-3 text-lg font-black text-[#071B2D]">
-                <span>Total a pagar</span>
+                <span>Subtotal dos produtos</span>
 
                 <span className="text-right text-cyan-700">
                   {formatarPreco(totalComDesconto)}
@@ -492,13 +491,13 @@ export default function CarrinhoPage() {
               )}
 
               <p className="mt-3 text-xs leading-relaxed text-gray-400">
-                O valor apresentado já considera os descontos dos produtos
-                seleccionados. Os custos de entrega serão calculados na
-                finalização da compra.
+                Este valor já inclui os descontos dos produtos
+                seleccionados. A entrega será calculada no checkout:
+                Maputo 400 MT ou Matola 900 MT.
               </p>
 
               {/* FINALIZAR COMPRA */}
-              {temSelecionados ? (
+              {podeFinalizar ? (
                 <Link
                   href="/finalizar-encomenda"
                   className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500 px-5 py-3 font-bold text-white transition hover:bg-cyan-600"
@@ -515,6 +514,13 @@ export default function CarrinhoPage() {
                   <ShoppingCart size={18} />
                   Finalizar compra
                 </button>
+              )}
+
+              {temProdutoIndisponivel && (
+                <p className="mt-3 text-center text-xs text-red-500">
+                  Remove ou desselecciona os produtos indisponíveis
+                  para continuar.
+                </p>
               )}
 
               {/* SOLICITAR COTAÇÃO */}

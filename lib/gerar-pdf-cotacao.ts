@@ -144,7 +144,7 @@ export async function gerarPDFCotacao(
   let y = 15;
 
   // =====================================================
-  // 1. CALCULAR DESCONTOS
+  // 1. CALCULAR PREÇOS E DESCONTOS POR PRODUTO
   // =====================================================
 
   const produtosCalculados = dados.items.map((item) => {
@@ -171,22 +171,31 @@ export async function gerarPDFCotacao(
 
     const totalOriginal = precoOriginal * quantidade;
 
-    const totalFinalInformado = Number(item.total);
+    // O total recebido do backend representa o valor final
+    // desta linha, já com os descontos aplicados.
+    const totalInformado = Number(item.total);
 
-    const totalFinal = Number.isFinite(totalFinalInformado)
-      ? Math.max(0, totalFinalInformado)
+    const totalFinal = Number.isFinite(totalInformado)
+      ? Math.max(0, totalInformado)
       : precoFinal * quantidade;
 
+    // Desconto real aplicado à linha.
     const desconto = Math.max(
       0,
       totalOriginal - totalFinal
     );
 
+    // Preço unitário efectivo após o desconto.
+    const precoUnitarioEfetivo =
+      quantidade > 0
+        ? totalFinal / quantidade
+        : precoFinal;
+
     return {
       ...item,
       quantidade,
       precoOriginal,
-      precoFinal,
+      precoFinal: precoUnitarioEfetivo,
       totalOriginal,
       totalFinal,
       desconto,
@@ -227,6 +236,7 @@ export async function gerarPDFCotacao(
           subtotalOriginal - subtotalFinalCalculado
         );
 
+  // O total geral do backend continua a ser a referência.
   const totalPagar = Math.max(
     0,
     numeroSeguro(dados.total)
@@ -415,11 +425,12 @@ export async function gerarPDFCotacao(
     "Loja de componentes electronicos",
     "WhatsApp: 864 018 233",
     "Localizacao: Alto-Mae, Maputo",
-    "Av. Mario Nguabi, cruzamento com",
+    "Av. Mario Nguabi, cruzamento entre",
     "a Rua da Guine.",
   ];
 
   pdf.setFillColor(...COR.claro);
+
   pdf.roundedRect(
     MARGEM,
     y,
@@ -452,6 +463,7 @@ export async function gerarPDFCotacao(
       pdf.setTextColor(...COR.escuro);
 
       const partes = pdf.splitTextToSize(linha, largura);
+
       pdf.text(partes, x, posicaoY);
 
       posicaoY += partes.length * 4 + 1;
@@ -522,10 +534,17 @@ export async function gerarPDFCotacao(
 
   function cabecalhoTabela() {
     pdf.setFillColor(...COR.azul);
-    pdf.rect(MARGEM, y - 5, larguraUtil, 10, "F");
+
+    pdf.rect(
+      MARGEM,
+      y - 5,
+      larguraUtil,
+      10,
+      "F"
+    );
 
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(7);
+    pdf.setFontSize(6.5);
     pdf.setTextColor(255, 255, 255);
 
     pdf.text("PRODUTO", colunas.produto, y + 1);
@@ -538,14 +557,14 @@ export async function gerarPDFCotacao(
     );
 
     pdf.text(
-      "PRECO BASE",
+      "PRECO ORIGINAL",
       colunas.original,
       y + 1,
       { align: "right" }
     );
 
     pdf.text(
-      "PRECO FINAL",
+      "PRECO C/DESC.",
       colunas.unitario,
       y + 1,
       { align: "right" }
@@ -578,8 +597,13 @@ export async function gerarPDFCotacao(
       nomeProduto.length * 4 + 4
     );
 
-    verificarEspaco(alturaLinha + 12);
+    const alturaDesconto = item.temDesconto ? 5 : 0;
 
+    verificarEspaco(
+      alturaLinha + alturaDesconto + 7
+    );
+
+    // Se uma nova página foi criada, repete o cabeçalho.
     if (y === 53) {
       tituloSecao("PRODUTOS E SERVICOS");
       cabecalhoTabela();
@@ -589,7 +613,11 @@ export async function gerarPDFCotacao(
     pdf.setFontSize(7);
     pdf.setTextColor(...COR.escuro);
 
-    pdf.text(nomeProduto, colunas.produto, y + 2);
+    pdf.text(
+      nomeProduto,
+      colunas.produto,
+      y + 2
+    );
 
     pdf.text(
       String(item.quantidade),
@@ -598,6 +626,8 @@ export async function gerarPDFCotacao(
       { align: "center" }
     );
 
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(6.5);
     pdf.setTextColor(...COR.cinza);
 
     pdf.text(
@@ -624,6 +654,7 @@ export async function gerarPDFCotacao(
     );
 
     pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(7);
     pdf.setTextColor(...COR.azul);
 
     pdf.text(
@@ -641,7 +672,7 @@ export async function gerarPDFCotacao(
       pdf.setTextColor(...COR.desconto);
 
       pdf.text(
-        `Desconto aplicado: ${moeda(item.desconto, moedaCotacao)}`,
+        `Desconto aplicado: - ${moeda(item.desconto, moedaCotacao)}`,
         colunas.produto,
         y
       );
@@ -692,7 +723,11 @@ export async function gerarPDFCotacao(
   pdf.setFontSize(8);
   pdf.setTextColor(...COR.cinza);
 
-  pdf.text("Subtotal original", xResumo + 5, resumoY);
+  pdf.text(
+    "Subtotal original",
+    xResumo + 5,
+    resumoY
+  );
 
   pdf.text(
     moeda(subtotalOriginal, moedaCotacao),
@@ -707,7 +742,11 @@ export async function gerarPDFCotacao(
     pdf.setTextColor(...COR.desconto);
     pdf.setFont("helvetica", "bold");
 
-    pdf.text("Desconto total", xResumo + 5, resumoY);
+    pdf.text(
+      "Desconto total",
+      xResumo + 5,
+      resumoY
+    );
 
     pdf.text(
       `- ${moeda(descontoTotal, moedaCotacao)}`,
@@ -732,7 +771,11 @@ export async function gerarPDFCotacao(
   pdf.setFontSize(10);
   pdf.setTextColor(...COR.azul);
 
-  pdf.text("TOTAL", xResumo + 5, resumoY + 4);
+  pdf.text(
+    "TOTAL",
+    xResumo + 5,
+    resumoY + 4
+  );
 
   pdf.text(
     moeda(totalPagar, moedaCotacao),
@@ -767,7 +810,11 @@ export async function gerarPDFCotacao(
     pdf.setFontSize(9);
     pdf.setTextColor(...COR.cinza);
 
-    pdf.text(observacoes, MARGEM, y);
+    pdf.text(
+      observacoes,
+      MARGEM,
+      y
+    );
 
     y += observacoes.length * 4 + 7;
   }

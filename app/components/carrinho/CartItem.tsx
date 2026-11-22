@@ -19,8 +19,14 @@ export default function CartItem({
 }: CartItemProps) {
   const { produto, quantidade } = item;
 
-  const total = produto.price * quantidade;
   const disponivel = produto.inStock;
+
+  const temPromocao =
+    produto.promotion === true &&
+    produto.oldPrice !== null &&
+    produto.oldPrice > produto.price;
+
+  const total = produto.price * quantidade;
 
   const formatarPreco = (valor: number) =>
     valor.toLocaleString("pt-MZ", {
@@ -32,7 +38,6 @@ export default function CartItem({
 
   return (
     <article className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md sm:flex-row sm:items-center">
-
       {/* IMAGEM DO PRODUTO */}
       <div className="relative h-28 w-full shrink-0 overflow-hidden rounded-xl bg-gray-50 sm:h-24 sm:w-24">
         {produto.image ? (
@@ -67,12 +72,17 @@ export default function CartItem({
             {formatarPreco(produto.price)}
           </span>
 
-          {produto.oldPrice !== null &&
-            produto.oldPrice > produto.price && (
+          {temPromocao && (
+            <>
               <span className="text-sm text-gray-400 line-through">
-                {formatarPreco(produto.oldPrice)}
+                {formatarPreco(produto.oldPrice!)}
               </span>
-            )}
+
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600">
+                Promoção
+              </span>
+            </>
+          )}
         </div>
 
         {/* DISPONIBILIDADE */}
@@ -93,10 +103,8 @@ export default function CartItem({
 
       {/* QUANTIDADE E REMOÇÃO */}
       <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
-
         {/* CONTROLO DA QUANTIDADE */}
         <div className="flex items-center gap-2 rounded-xl border border-gray-200 p-1">
-
           <button
             type="button"
             onClick={() =>
@@ -128,10 +136,9 @@ export default function CartItem({
 
         {/* TOTAL E REMOVER */}
         <div className="flex items-center gap-4">
-
           <div className="text-right">
             <p className="text-xs text-gray-500">
-              Total
+              Total ({quantidade} {quantidade === 1 ? "unidade" : "unidades"})
             </p>
 
             <p className="font-black text-[#071B2D]">
@@ -148,7 +155,6 @@ export default function CartItem({
           >
             <Trash2 size={19} />
           </button>
-
         </div>
       </div>
     </article>

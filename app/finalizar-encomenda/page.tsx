@@ -146,6 +146,12 @@ export default function FinalizarEncomendaPage() {
   const [sessaoCliente, setSessaoCliente] = useState(false);
   const [aCarregarSessao, setACarregarSessao] = useState(true);
 
+
+  const TAXAS_ENTREGA = {
+  MAPUTO: 400,
+  MATOLA: 900,
+} as const;
+
   // ===================================================
   // CARREGAR DADOS DA CONTA
   // ===================================================
@@ -272,6 +278,13 @@ export default function FinalizarEncomendaPage() {
   );
 
   const subtotalComDescontoSelecionado = Number(totalSelecionado);
+
+  const taxaEntregaSelecionada = zonaEntrega
+  ? TAXAS_ENTREGA[zonaEntrega]
+  : 0;
+
+const totalFinalSelecionado =
+  subtotalComDescontoSelecionado + taxaEntregaSelecionada;
 
   const descontoTotalSelecionado = Math.max(
     0,
@@ -803,8 +816,8 @@ export default function FinalizarEncomendaPage() {
                 Valor sem desconto
               </span>
 
-              <span className="font-semibold text-gray-700">
-                {formatarPreco(encomenda.subtotalOriginal)}
+             <span className="font-semibold text-gray-700">
+                Total de compra (incluindo entrega)
               </span>
             </div>
 
@@ -820,7 +833,7 @@ export default function FinalizarEncomendaPage() {
 
             <div className="mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 text-sm">
               <span className="font-semibold text-gray-700">
-                Total dos produtos
+                Total dos produtos (incluindo entrega)
               </span>
 
               <span className="text-xl font-black text-[#071B2D]">
@@ -901,7 +914,7 @@ export default function FinalizarEncomendaPage() {
 
               <div>
                 <h2 className="font-bold text-[#071B2D]">
-                  Documento da encomenda
+                  Documento de compra
                 </h2>
 
                 <p className="text-sm text-gray-500">
@@ -1512,8 +1525,8 @@ export default function FinalizarEncomendaPage() {
                                   Maputo
                                 </p>
 
-                                <p className="mt-1 text-sm font-semibold text-cyan-700">
-                                  300–500 MT
+                               <p className="mt-1 text-sm font-semibold text-cyan-700">
+                                  {formatarPreco(TAXAS_ENTREGA.MAPUTO)}
                                 </p>
                               </button>
 
@@ -1530,9 +1543,9 @@ export default function FinalizarEncomendaPage() {
                                   Matola
                                 </p>
 
-                                <p className="mt-1 text-sm font-semibold text-cyan-700">
-                                  600–1.000 MT
-                                </p>
+                             <p className="mt-1 text-sm font-semibold text-cyan-700">
+                                {formatarPreco(TAXAS_ENTREGA.MATOLA)}
+                              </p>
                               </button>
                             </div>
                           </div>
@@ -1606,12 +1619,12 @@ export default function FinalizarEncomendaPage() {
                             </p>
                           </div>
 
-                          <p className="text-xs text-gray-500">
-                            Maputo: 300–500 MT. Matola: 600–1.000 MT.
-                            O custo exacto será confirmado pela equipa
-                            MSW BUSINESS. Este valor não está incluído
-                            no total dos produtos.
-                          </p>
+                        <p className="text-xs text-gray-500">
+                          Maputo: {formatarPreco(TAXAS_ENTREGA.MAPUTO)}.
+                          Matola: {formatarPreco(TAXAS_ENTREGA.MATOLA)}.
+                          A taxa aplicável será calculada automaticamente
+                          de acordo com a zona seleccionada.
+                        </p>
                         </div>
                       )}
                     </section>
@@ -1820,23 +1833,21 @@ export default function FinalizarEncomendaPage() {
                 <div className="flex justify-between gap-3 text-sm text-gray-600">
                   <span>Entrega</span>
 
-                  <span className="text-right">
+                  <span className="font-semibold text-right">
                     {!zonaEntrega
                       ? "Não solicitada"
-                      : zonaEntrega === "MAPUTO"
-                        ? "300–500 MT"
-                        : "600–1.000 MT"}
+                      : formatarPreco(TAXAS_ENTREGA[zonaEntrega])}
                   </span>
                 </div>
 
                 <div className="border-t border-gray-200 pt-4">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-bold text-[#071B2D]">
-                      Total dos produtos
+                      Total da encomenda
                     </span>
 
                     <span className="text-xl font-black text-cyan-700">
-                      {formatarPreco(subtotalComDescontoSelecionado)}
+                      {formatarPreco(totalFinalSelecionado)}
                     </span>
                   </div>
 
@@ -1849,8 +1860,8 @@ export default function FinalizarEncomendaPage() {
 
                   <p className="mt-2 text-xs text-gray-500">
                     {zonaEntrega
-                      ? "O custo exacto da entrega será confirmado pela equipa MSW BUSINESS. Os testes dos componentes serão realizados no acto da entrega."
-                      : "A entrega não foi seleccionada. O valor apresentado corresponde apenas aos produtos seleccionados."}
+                      ? "A taxa de entrega foi adicionada automaticamente ao total. Os testes dos componentes serão realizados no acto da entrega."
+                      : "A entrega não foi seleccionada. O total corresponde apenas aos produtos seleccionados."}
                   </p>
                 </div>
               </div>

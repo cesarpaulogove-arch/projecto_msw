@@ -18,6 +18,9 @@ import {
   MapPin,
   Building2,
   Hash,
+  Tag,
+  BadgePercent,
+  CheckCircle2,
 } from "lucide-react";
 
 import {
@@ -33,6 +36,7 @@ interface CotacaoItem {
   productImage?: string | null;
   quantity: number;
   unitPrice: string | number;
+  originalUnitPrice?: string | number | null;
   total: string | number;
 }
 
@@ -47,6 +51,8 @@ interface Cotacao {
   email?: string | null;
   address?: string | null;
   total: string | number;
+  subtotalOriginal?: string | number | null;
+  discountTotal?: string | number | null;
   currency: string;
   status: string;
   notes?: string | null;
@@ -55,15 +61,20 @@ interface Cotacao {
   items: CotacaoItem[];
 }
 
+function numeroSeguro(valor: string | number | null | undefined): number {
+  const numero = Number(valor ?? 0);
+
+  return Number.isFinite(numero) ? numero : 0;
+}
+
 function formatarMoeda(valor: string | number) {
   return new Intl.NumberFormat("pt-MZ", {
     style: "currency",
     currency: "MZN",
     minimumFractionDigits: 2,
-  }).format(Number(valor));
+  }).format(numeroSeguro(valor));
 }
 
-// Formatar datas usando o fuso horário de Maputo.
 function formatarData(data?: string | null) {
   if (!data) return "—";
 
@@ -79,6 +90,43 @@ function formatarData(data?: string | null) {
     month: "long",
     year: "numeric",
   }).format(dataConvertida);
+}
+
+function obterDadosPreco(item: CotacaoItem) {
+  const precoFinal = numeroSeguro(item.unitPrice);
+
+  const precoOriginal = numeroSeguro(
+    item.originalUnitPrice ?? item.unitPrice
+  );
+
+  const totalFinal = numeroSeguro(item.total);
+
+  const descontoUnitario = Math.max(
+    0,
+    precoOriginal - precoFinal
+  );
+
+  const temPromocao = descontoUnitario > 0;
+
+  const descontoLinha = Math.max(
+    0,
+    precoOriginal * item.quantity - totalFinal
+  );
+
+  const percentagemDesconto =
+    precoOriginal > 0 && temPromocao
+      ? Math.round((descontoUnitario / precoOriginal) * 100)
+      : 0;
+
+  return {
+    precoOriginal,
+    precoFinal,
+    totalFinal,
+    descontoUnitario,
+    descontoLinha,
+    percentagemDesconto,
+    temPromocao,
+  };
 }
 
 function CotacaoConteudo() {
@@ -148,7 +196,6 @@ function CotacaoConteudo() {
     };
   }, [id]);
 
-  // Descarregar cotação em PDF.
   async function descarregarPDF() {
     if (!cotacao || aGerarPDF) return;
 
@@ -168,7 +215,6 @@ function CotacaoConteudo() {
     }
   }
 
-  // Imprimir ou guardar a cotação em PDF pelo navegador.
   function imprimirCotacao() {
     window.print();
   }
@@ -206,11 +252,33 @@ function CotacaoConteudo() {
 
   const isCompany = cotacao.customerType === "COMPANY";
 
+  const subtotalOriginal = numeroSeguro(
+    cotacao.subtotalOriginal ??
+    cotacao.items.reduce(
+      (soma, item) =>
+        soma +
+        numeroSeguro(
+          item.originalUnitPrice ?? item.unitPrice
+        ) * item.quantity,
+      0
+    )
+  );
+
+  const descontoTotal = numeroSeguro(
+    cotacao.discountTotal ??
+    Math.max(0, subtotalOriginal - numeroSeguro(cotacao.total))
+  );
+
+  const totalPromocional = numeroSeguro(cotacao.total);
+
+  const quantidadeProdutosPromocionais = cotacao.items.filter(
+    (item) => obterDadosPreco(item).temPromocao
+  ).length;
+
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 print:bg-white print:p-0">
       <div className="mx-auto max-w-5xl">
 
-        {/* Botões superiores */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
           <Link
             href="/"
@@ -247,7 +315,6 @@ function CotacaoConteudo() {
           </div>
         </div>
 
-        {/* Erro ao gerar PDF */}
         {erroPDF && (
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 print:hidden">
             <AlertCircle size={18} className="shrink-0" />
@@ -257,7 +324,6 @@ function CotacaoConteudo() {
 
         <article className="overflow-hidden rounded-xl bg-white shadow-sm print:rounded-none print:shadow-none">
 
-          {/* Cabeçalho */}
           <header className="border-b-4 border-cyan-500 bg-slate-950 p-8 text-white">
             <div className="flex flex-wrap items-start justify-between gap-6">
               <div>
@@ -289,10 +355,8 @@ function CotacaoConteudo() {
 
           <div className="space-y-8 p-6 sm:p-8">
 
-            {/* Dados do cliente e informação da cotação */}
             <section className="grid gap-8 sm:grid-cols-2">
 
-              {/* Dados do cliente */}
               <div>
                 <h2 className="mb-4 flex items-center gap-2 font-bold text-slate-900">
                   <User size={18} className="text-cyan-600" />
@@ -315,20 +379,14 @@ function CotacaoConteudo() {
 
                   {isCompany && cotacao.company && (
                     <p className="flex items-center gap-2">
-                      <Building2
-                        size={15}
-                        className="shrink-0 text-cyan-600"
-                      />
+                      <Building2 size={15} className="shrink-0 text-cyan-600" />
                       Empresa: {cotacao.company}
                     </p>
                   )}
 
                   {isCompany && cotacao.nuit && (
                     <p className="flex items-center gap-2">
-                      <Hash
-                        size={15}
-                        className="shrink-0 text-cyan-600"
-                      />
+                      <Hash size={15} className="shrink-0 text-cyan-600" />
                       NUIT: {cotacao.nuit}
                     </p>
                   )}
@@ -354,7 +412,6 @@ function CotacaoConteudo() {
                 </div>
               </div>
 
-              {/* Informação da cotação */}
               <div className="sm:text-right">
                 <h2 className="mb-4 flex items-center gap-2 font-bold text-slate-900 sm:justify-end">
                   <CalendarDays size={18} className="text-cyan-600" />
@@ -377,10 +434,7 @@ function CotacaoConteudo() {
                   </p>
 
                   <div className="flex items-start gap-2 sm:justify-end">
-                    <MapPin
-                      size={16}
-                      className="mt-0.5 shrink-0 text-cyan-600"
-                    />
+                    <MapPin size={16} className="mt-0.5 shrink-0 text-cyan-600" />
 
                     <p className="text-left sm:text-right">
                       <strong className="text-slate-900">
@@ -395,88 +449,163 @@ function CotacaoConteudo() {
               </div>
             </section>
 
-            {/* Produtos */}
             <section>
-              <h2 className="mb-4 text-lg font-bold text-slate-900">
-                Produtos e serviços
-              </h2>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-slate-900">
+                  Produtos e serviços
+                </h2>
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px] text-left text-sm">
+                {quantidadeProdutosPromocionais > 0 && (
+                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                    <BadgePercent size={15} />
+                    {quantidadeProdutosPromocionais} produto(s) com desconto
+                  </span>
+                )}
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full min-w-[720px] text-left text-sm">
                   <thead>
-                    <tr className="border-y border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
                       <th className="px-3 py-3">Produto</th>
                       <th className="px-3 py-3 text-center">Qtd.</th>
-                      <th className="px-3 py-3 text-right">
-                        Preço unit.
-                      </th>
-                      <th className="px-3 py-3 text-right">
-                        Total
-                      </th>
+                      <th className="px-3 py-3 text-right">Preço unitário</th>
+                      <th className="px-3 py-3 text-right">Desconto</th>
+                      <th className="px-3 py-3 text-right">Total final</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {cotacao.items.map((item) => (
-                      <tr
-                        key={item.id}
-                        className="border-b border-slate-100"
-                      >
-                        <td className="px-3 py-4">
-                          <div className="flex items-center gap-3">
-                            {item.productImage ? (
-                              <Image
-                                src={item.productImage}
-                                alt={item.productName}
-                                width={48}
-                                height={48}
-                                className="h-12 w-12 rounded-md object-contain"
-                                unoptimized
-                              />
-                            ) : (
-                              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-100">
-                                <FileText
-                                  size={20}
-                                  className="text-slate-400"
+                    {cotacao.items.map((item) => {
+                      const preco = obterDadosPreco(item);
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className="border-b border-slate-100 last:border-0"
+                        >
+                          <td className="px-3 py-4">
+                            <div className="flex items-center gap-3">
+                              {item.productImage ? (
+                                <Image
+                                  src={item.productImage}
+                                  alt={item.productName}
+                                  width={48}
+                                  height={48}
+                                  className="h-12 w-12 rounded-md object-contain"
+                                  unoptimized
                                 />
+                              ) : (
+                                <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-100">
+                                  <FileText size={20} className="text-slate-400" />
+                                </div>
+                              )}
+
+                              <div>
+                                <p className="font-medium text-slate-900">
+                                  {item.productName}
+                                </p>
+
+                                {preco.temPromocao && (
+                                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase text-emerald-700">
+                                    <Tag size={11} />
+                                    Promoção
+                                  </span>
+                                )}
                               </div>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-4 text-center font-medium text-slate-700">
+                            {item.quantity}
+                          </td>
+
+                          <td className="px-3 py-4 text-right">
+                            {preco.temPromocao ? (
+                              <div>
+                                <p className="text-xs text-slate-400 line-through">
+                                  {formatarMoeda(preco.precoOriginal)}
+                                </p>
+
+                                <p className="font-bold text-emerald-700">
+                                  {formatarMoeda(preco.precoFinal)}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="font-medium text-slate-800">
+                                {formatarMoeda(preco.precoFinal)}
+                              </p>
                             )}
+                          </td>
 
-                            <span className="font-medium text-slate-900">
-                              {item.productName}
-                            </span>
-                          </div>
-                        </td>
+                          <td className="px-3 py-4 text-right">
+                            {preco.temPromocao ? (
+                              <div>
+                                <p className="font-bold text-emerald-700">
+                                  -{formatarMoeda(preco.descontoUnitario)}
+                                </p>
 
-                        <td className="px-3 py-4 text-center">
-                          {item.quantity}
-                        </td>
+                                <p className="text-xs text-slate-500">
+                                  {preco.percentagemDesconto}% / unidade
+                                </p>
 
-                        <td className="px-3 py-4 text-right">
-                          {formatarMoeda(item.unitPrice)}
-                        </td>
+                                <p className="mt-1 text-xs font-semibold text-emerald-700">
+                                  Poupança: {formatarMoeda(preco.descontoLinha)}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
 
-                        <td className="px-3 py-4 text-right font-semibold text-slate-900">
-                          {formatarMoeda(item.total)}
-                        </td>
-                      </tr>
-                    ))}
+                          <td className="px-3 py-4 text-right font-bold text-slate-900">
+                            {formatarMoeda(preco.totalFinal)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </section>
 
-            {/* Total */}
             <section className="flex justify-end">
-              <div className="w-full max-w-sm">
-                <div className="flex justify-between border-t-2 border-slate-900 pt-4 text-lg font-black text-slate-950">
-                  <span>TOTAL</span>
-                  <span>{formatarMoeda(cotacao.total)}</span>
+              <div className="w-full max-w-sm space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-5">
+
+                <div className="flex justify-between gap-4 text-sm text-slate-600">
+                  <span>Subtotal original</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatarMoeda(subtotalOriginal)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-4 text-sm text-emerald-700">
+                  <span className="flex items-center gap-2">
+                    <BadgePercent size={16} />
+                    Desconto total
+                  </span>
+
+                  <span className="font-bold">
+                    -{formatarMoeda(descontoTotal)}
+                  </span>
+                </div>
+
+                <div className="border-t border-slate-300 pt-3">
+                  <div className="flex items-center justify-between gap-4 text-lg font-black text-slate-950">
+                    <span>TOTAL FINAL</span>
+                    <span>{formatarMoeda(totalPromocional)}</span>
+                  </div>
+
+                  {descontoTotal > 0 && (
+                    <p className="mt-2 flex items-center justify-end gap-1 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 size={14} />
+                      Está a poupar {formatarMoeda(descontoTotal)}
+                    </p>
+                  )}
                 </div>
               </div>
             </section>
 
-            {/* Observações */}
             {cotacao.notes && (
               <section className="border-t border-slate-200 pt-5">
                 <h2 className="mb-2 font-bold text-slate-900">
@@ -489,7 +618,6 @@ function CotacaoConteudo() {
               </section>
             )}
 
-            {/* Carimbo da empresa */}
             <section className="w-full pt-6 text-center print:break-inside-avoid">
               <div className="mx-auto flex w-full justify-center">
                 <Image
@@ -504,7 +632,6 @@ function CotacaoConteudo() {
               </div>
             </section>
 
-            {/* Rodapé */}
             <footer className="border-t border-slate-200 pt-5 text-center text-xs text-slate-400 print:break-inside-avoid">
               <p className="font-semibold text-slate-600">
                 MSW BUSINESS — Obrigado pela preferência.

@@ -272,7 +272,6 @@ function normalizarItens(
       existente.selecionado =
         existente.selecionado || selecionado;
 
-      // Actualizar os dados mais recentes do produto.
       existente.produto = produto;
     } else {
       mapa.set(produto.id, {
@@ -713,7 +712,7 @@ export function CarrinhoProvider({
   const total = itens.reduce(
     (soma, item) =>
       soma +
-      item.produto.price * item.quantidade,
+      obterPrecoFinal(item.produto) * item.quantidade,
     0
   );
 
