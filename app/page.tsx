@@ -14,35 +14,254 @@ import InfoBlocks from "./components/InfoBlocks";
 
 import type { ProdutoCarrinho } from "@/app/components/carrinho/CartProvider";
 
+// =====================================================
+// TIPOS
+// =====================================================
+
 interface ApiProduct {
   id: string;
   name: string;
   code?: string | null;
+
   category?: {
     name?: string;
   } | null;
+
   price: number | string;
   oldPrice?: number | string | null;
+
   image?: string | null;
   images?: string[] | null;
+
   rating?: number | string | null;
   inStock?: boolean;
   promotion?: boolean;
+  featured?: boolean;
+
+  createdAt?: string;
 }
 
 const PRODUTOS_INICIAIS = 15;
 const PRODUTOS_POR_CARGA = 15;
 
+const CHAVE_SESSAO = "msw_montra_seed_v1";
+
+// =====================================================
+// SEMENTE DA SESSÃO
+// =====================================================
+
+function obterSeedSessao(): number {
+  try {
+    const existente = sessionStorage.getItem(CHAVE_SESSAO);
+
+    if (existente) {
+      return Number(existente);
+    }
+
+    const novaSeed = Math.floor(Math.random() * 2147483647) + 1;
+
+    sessionStorage.setItem(
+      CHAVE_SESSAO,
+      String(novaSeed)
+    );
+
+    return novaSeed;
+  } catch {
+    return Math.floor(Math.random() * 2147483647) + 1;
+  }
+}
+
+// =====================================================
+// GERADOR ALEATÓRIO DETERMINÍSTICO
+// =====================================================
+
+function criarGerador(seedInicial: number) {
+  let seed = seedInicial >>> 0;
+
+  return function () {
+    seed += 0x6D2B79F5;
+
+    let valor = seed;
+
+    valor = Math.imul(
+      valor ^ (valor >>> 15),
+      valor | 1
+    );
+
+    valor ^= valor + Math.imul(
+      valor ^ (valor >>> 7),
+      valor | 61
+    );
+
+    return (
+      ((valor ^ (valor >>> 14)) >>> 0) / 4294967296
+    );
+  };
+}
+
+// =====================================================
+// BARALHAR PRODUTOS
+// =====================================================
+
+function baralharProdutos<T>(
+  lista: T[],
+  random: () => number
+): T[] {
+  const resultado = [...lista];
+
+  for (let i = resultado.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+
+    [resultado[i], resultado[j]] = [
+      resultado[j],
+      resultado[i],
+    ];
+  }
+
+  return resultado;
+}
+
+// =====================================================
+// MOTOR DE SELEÇÃO INTELIGENTE
+// =====================================================
+
+function selecionarProdutosInteligentes(
+  produtos: ApiProduct[],
+  seed: number,
+  pesquisaAtiva: boolean
+): ApiProduct[] {
+  // A pesquisa mantém a ordem normal dos resultados.
+  if (pesquisaAtiva) {
+    return produtos;
+  }
+
+  const random = criarGerador(seed);
+
+  const agora = Date.now();
+  const DIAS_NOVIDADE = 14;
+
+  const limiteNovidade =
+    agora - DIAS_NOVIDADE * 24 * 60 * 60 * 1000;
+
+  const destaques: ApiProduct[] = [];
+  const promocoes: ApiProduct[] = [];
+  const novidades: ApiProduct[] = [];
+  const restantes: ApiProduct[] = [];
+  const indisponiveis: ApiProduct[] = [];
+
+  // Separar os produtos por prioridade.
+  for (const produto of produtos) {
+    if (produto.inStock !== true) {
+      indisponiveis.push(produto);
+      continue;
+    }
+
+    if (produto.featured === true) {
+      destaques.push(produto);
+      continue;
+    }
+
+    if (produto.promotion === true) {
+      promocoes.push(produto);
+      continue;
+    }
+
+    const dataCriacao = produto.createdAt
+      ? new Date(produto.createdAt).getTime()
+      : 0;
+
+    if (
+      dataCriacao > 0 &&
+      dataCriacao >= limiteNovidade
+    ) {
+      novidades.push(produto);
+      continue;
+    }
+
+    restantes.push(produto);
+  }
+
+  // Baralhar cada grupo sem perder a identidade
+  // da seleção durante a sessão.
+  const grupos = [
+    baralharProdutos(destaques, random),
+    baralharProdutos(promocoes, random),
+    baralharProdutos(novidades, random),
+    baralharProdutos(restantes, random),
+  ];
+
+  const resultado: ApiProduct[] = [];
+
+  // Os grupos recebem oportunidades de visibilidade
+  // de forma alternada.
+  //
+  // Promoções e produtos gerais recebem duas
+  // oportunidades por ciclo.
+  const prioridades = [
+    0, // Destaques
+    1, // Promoções
+    1, // Promoções
+    2, // Novidades
+    3, // Restantes
+    3, // Restantes
+  ];
+
+  const posicoes = [0, 0, 0, 0];
+
+  while (
+    grupos.some(
+      (grupo, indice) =>
+        posicoes[indice] < grupo.length
+    )
+  ) {
+    let adicionouProduto = false;
+
+    for (const grupoIndice of prioridades) {
+      const grupo = grupos[grupoIndice];
+
+      if (posicoes[grupoIndice] >= grupo.length) {
+        continue;
+      }
+
+      resultado.push(
+        grupo[posicoes[grupoIndice]]
+      );
+
+      posicoes[grupoIndice]++;
+      adicionouProduto = true;
+    }
+
+    if (!adicionouProduto) {
+      break;
+    }
+  }
+
+  // Produtos indisponíveis continuam visíveis,
+  // mas aparecem depois dos disponíveis.
+  resultado.push(
+    ...baralharProdutos(indisponiveis, random)
+  );
+
+  return resultado;
+}
+
+// =====================================================
+// COMPONENTE PRINCIPAL
+// =====================================================
+
 function HomeContent() {
   const [products, setProducts] = useState<ProdutoCarrinho[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const [limiteProdutos, setLimiteProdutos] = useState(
     PRODUTOS_INICIAIS
   );
 
   const searchParams = useSearchParams();
-  const pesquisa = searchParams.get("pesquisa")?.trim() ?? "";
+
+  const pesquisa =
+    searchParams.get("pesquisa")?.trim() ?? "";
 
   // =====================================================
   // CARREGAR PRODUTOS
@@ -76,7 +295,8 @@ function HomeContent() {
 
           throw new Error(
             `Erro ${response.status}: ${
-              mensagem || "Não foi possível carregar os produtos."
+              mensagem ||
+              "Não foi possível carregar os produtos."
             }`
           );
         }
@@ -95,7 +315,9 @@ function HomeContent() {
             produtos?: unknown;
           };
 
-          lista = resultado.products ?? resultado.produtos;
+          lista =
+            resultado.products ??
+            resultado.produtos;
         }
 
         if (!Array.isArray(lista)) {
@@ -104,30 +326,52 @@ function HomeContent() {
           );
         }
 
-        const produtosFormatados: ProdutoCarrinho[] = (
-          lista as ApiProduct[]
-        ).map((item) => ({
-          id: String(item.id),
-          name: item.name ?? "",
-          category: item.category?.name ?? "Sem categoria",
-          price: Number(item.price) || 0,
+        const produtosAPI = lista as ApiProduct[];
 
-          oldPrice:
-            item.oldPrice !== null &&
-            item.oldPrice !== undefined
-              ? Number(item.oldPrice)
-              : null,
+        // =================================================
+        // APLICAR MOTOR INTELIGENTE
+        // =================================================
 
-          image: item.image ?? "",
+        const seed = obterSeedSessao();
 
-          images: Array.isArray(item.images)
-            ? item.images
-            : [],
+        const produtosSelecionados =
+          selecionarProdutosInteligentes(
+            produtosAPI,
+            seed,
+            Boolean(pesquisa)
+          );
 
-          rating: Number(item.rating ?? 0) || 0,
-          inStock: item.inStock === true,
-          promotion: item.promotion === true,
-        }));
+        // =================================================
+        // FORMATAR PRODUTOS PARA O CARRINHO
+        // =================================================
+
+        const produtosFormatados: ProdutoCarrinho[] =
+          produtosSelecionados.map((item) => ({
+            id: String(item.id),
+            name: item.name ?? "",
+
+            category:
+              item.category?.name ?? "Sem categoria",
+
+            price: Number(item.price) || 0,
+
+            oldPrice:
+              item.oldPrice !== null &&
+              item.oldPrice !== undefined
+                ? Number(item.oldPrice)
+                : null,
+
+            image: item.image ?? "",
+
+            images: Array.isArray(item.images)
+              ? item.images
+              : [],
+
+            rating: Number(item.rating ?? 0) || 0,
+
+            inStock: item.inStock === true,
+            promotion: item.promotion === true,
+          }));
 
         if (mounted) {
           setProducts(produtosFormatados);
@@ -160,7 +404,9 @@ function HomeContent() {
   // =====================================================
 
   function verMaisProdutos() {
-    setLimiteProdutos((atual) => atual + PRODUTOS_POR_CARGA);
+    setLimiteProdutos((atual) =>
+      atual + PRODUTOS_POR_CARGA
+    );
   }
 
   // =====================================================
@@ -186,22 +432,22 @@ function HomeContent() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* HERO */}
       <Hero />
 
-      {/* INFORMAÇÕES */}
       <InfoBlocks />
 
-      {/* CATÁLOGO */}
       <section
         id="produtos"
         className="mx-auto max-w-[1600px] px-2 py-6 sm:px-6 sm:py-8 lg:px-8"
       >
 
         {/* CABEÇALHO */}
+
         <div className="mb-5 sm:mb-8">
           <h2 className="text-base font-black uppercase tracking-wide text-[#071B2D] sm:text-2xl">
-            CATÁLOGO DOS PRODUTOS
+            {pesquisa
+              ? "RESULTADOS DA PESQUISA"
+              : "CATÁLOGO DOS PRODUTOS"}
           </h2>
 
           {pesquisa && (
@@ -215,6 +461,7 @@ function HomeContent() {
         </div>
 
         {/* CARREGAMENTO */}
+
         {loading && (
           <div className="py-16 text-center text-gray-500">
             <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-cyan-600" />
@@ -223,6 +470,7 @@ function HomeContent() {
         )}
 
         {/* ERRO */}
+
         {!loading && error && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-red-600">
             <p className="text-sm font-medium">
@@ -240,6 +488,7 @@ function HomeContent() {
         )}
 
         {/* SEM RESULTADOS */}
+
         {!loading && !error && products.length === 0 && (
           <div className="rounded-xl border border-gray-200 bg-white p-8 text-center sm:p-10">
 
@@ -273,16 +522,17 @@ function HomeContent() {
         )}
 
         {/* GRELHA DE PRODUTOS */}
+
         {!loading && !error && products.length > 0 && (
           <>
 
-           <div
-                className="
-                  grid grid-cols-3 gap-2
-                  sm:grid-cols-3 sm:gap-3
-                  lg:grid-cols-5 lg:gap-4
-                "
-              >
+            <div
+              className="
+                grid grid-cols-3 gap-2
+                sm:grid-cols-3 sm:gap-3
+                lg:grid-cols-5 lg:gap-4
+              "
+            >
               {produtosVisiveis.map((product) => (
                 <div
                   key={product.id}
@@ -291,10 +541,10 @@ function HomeContent() {
                   <ProductCard product={product} />
                 </div>
               ))}
-
             </div>
 
             {/* VER MAIS */}
+
             {existemMaisProdutos && (
               <div className="mt-8 flex flex-col items-center sm:mt-12">
 
@@ -309,13 +559,16 @@ function HomeContent() {
                 </button>
 
                 <p className="mt-3 text-[10px] text-gray-400 sm:text-xs">
-                  {products.length - produtosVisiveis.length} produtos por visualizar
+                  {products.length -
+                    produtosVisiveis.length}{" "}
+                  produtos por visualizar
                 </p>
 
               </div>
             )}
 
             {/* TODOS APRESENTADOS */}
+
             {!existemMaisProdutos &&
               products.length > PRODUTOS_INICIAIS && (
                 <p className="mt-10 text-center text-xs font-medium text-gray-400 sm:text-sm">
@@ -331,9 +584,9 @@ function HomeContent() {
   );
 }
 
-// =======================================================
+// =====================================================
 // COMPONENTE PRINCIPAL COM SUSPENSE
-// =======================================================
+// =====================================================
 
 export default function Home() {
   return (
