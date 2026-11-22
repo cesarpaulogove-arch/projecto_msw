@@ -7,8 +7,6 @@ import { createHmac, timingSafeEqual } from "crypto";
 
 const COOKIE_NAME = "msw_admin_session";
 
-const ADMIN_SESSION_DURATION = 8 * 60 * 60;
-
 interface SessaoGestor {
   email: string;
   expiresAt: number;

@@ -12,6 +12,7 @@ import {
   Plus,
 } from "lucide-react";
 import Link from "next/link";
+import { upload } from "@vercel/blob/client";
 
 interface Categoria {
   id: string;
@@ -44,12 +45,6 @@ interface ImagemProduto {
 interface ProductFormProps {
   categorias: Categoria[];
   produtoInicial?: ProdutoInicial;
-}
-
-interface ImagemOrdem {
-  type: "existing" | "new";
-  url?: string;
-  index?: number;
 }
 
 const MAX_IMAGES = 8;
@@ -266,215 +261,204 @@ export default function ProductForm({
     });
   }
 
-  async function guardarProduto(
-    event: React.FormEvent<HTMLFormElement>
+
+async function guardarProduto(
+  event: React.FormEvent<HTMLFormElement>
+) {
+  event.preventDefault();
+  setErro("");
+
+  if (!form.name.trim() || !form.categoryId) {
+    setErro("Preencha o nome e seleccione uma categoria.");
+    return;
+  }
+
+  if (form.code.trim().length > 80) {
+    setErro("O código do componente não pode ultrapassar 80 caracteres.");
+    return;
+  }
+
+  if (imagens.length === 0) {
+    setErro("Seleccione pelo menos uma imagem para o produto.");
+    return;
+  }
+
+  if (imagens.length > MAX_IMAGES) {
+    setErro(`O produto pode ter no máximo ${MAX_IMAGES} imagens.`);
+    return;
+  }
+
+  if (
+    !Number.isFinite(Number(form.price)) ||
+    Number(form.price) <= 0
   ) {
-    event.preventDefault();
-    setErro("");
+    setErro("Introduza um preço válido.");
+    return;
+  }
 
-    if (!form.name.trim() || !form.categoryId) {
-      setErro(
-        "Preencha o nome e seleccione uma categoria."
-      );
-      return;
-    }
+  if (
+    form.oldPrice &&
+    (
+      !Number.isFinite(Number(form.oldPrice)) ||
+      Number(form.oldPrice) <= Number(form.price)
+    )
+  ) {
+    setErro("O preço anterior deve ser superior ao preço actual.");
+    return;
+  }
 
-    if (form.code.trim().length > 80) {
-      setErro(
-        "O código do componente não pode ultrapassar 80 caracteres."
-      );
-      return;
-    }
+  const indicePrincipal = imagens.findIndex(
+    (imagem) => imagem.url === imagemPrincipal
+  );
 
-    if (imagens.length === 0) {
-      setErro(
-        "Seleccione pelo menos uma imagem para o produto."
-      );
-      return;
-    }
+  if (indicePrincipal === -1) {
+    setErro("Seleccione uma imagem principal para o produto.");
+    return;
+  }
 
-    if (imagens.length > MAX_IMAGES) {
-      setErro(
-        `O produto pode ter no máximo ${MAX_IMAGES} imagens.`
-      );
-      return;
-    }
+  try {
+    setLoading(true);
 
-    if (
-      !Number.isFinite(Number(form.price)) ||
-      Number(form.price) <= 0
-    ) {
-      setErro("Introduza um preço válido.");
-      return;
-    }
+    // 1. Enviar apenas as imagens novas directamente para o Blob.
+    const extensoes: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+    };
 
-    if (
-      form.oldPrice &&
-      (
-        !Number.isFinite(Number(form.oldPrice)) ||
-        Number(form.oldPrice) <= Number(form.price)
-      )
-    ) {
-      setErro(
-        "O preço anterior deve ser superior ao preço actual."
-      );
-      return;
-    }
+    const urlsPorId = new Map<string, string>();
 
-    // Garantir que existe uma imagem principal válida
-    const indicePrincipal = imagens.findIndex(
-      (imagem) => imagem.url === imagemPrincipal
+    await Promise.all(
+      imagens.map(async (imagem) => {
+        // Imagens já existentes mantêm o URL actual.
+        if (!imagem.nova) {
+          urlsPorId.set(imagem.id, imagem.url);
+          return;
+        }
+
+        if (!imagem.file) {
+          throw new Error(
+            "Não foi possível localizar um dos ficheiros seleccionados."
+          );
+        }
+
+        if (!TIPOS_PERMITIDOS.includes(imagem.file.type)) {
+          throw new Error(
+            `O formato da imagem "${imagem.file.name}" não é permitido.`
+          );
+        }
+
+        if (imagem.file.size > MAX_FILE_SIZE) {
+          throw new Error(
+            `A imagem "${imagem.file.name}" ultrapassa 5 MB.`
+          );
+        }
+
+        const extensao = extensoes[imagem.file.type];
+
+        if (!extensao) {
+          throw new Error("Formato de imagem não suportado.");
+        }
+
+        const pathname = `produtos/${crypto.randomUUID()}.${extensao}`;
+
+        let blob;
+
+try {
+  blob = await upload(pathname, imagem.file, {
+    access: "public",
+    handleUploadUrl: "/api/uploads",
+    contentType: imagem.file.type,
+  });
+} catch (error) {
+  console.error("Erro detalhado no upload:", error);
+
+  throw new Error(
+    `Falha ao carregar "${imagem.file.name}". Verifique a sessão do gestor e a configuração do Vercel Blob.`
+  );
+}
+
+        urlsPorId.set(imagem.id, blob.url);
+      })
     );
 
-    if (indicePrincipal === -1) {
-      setErro(
-        "Seleccione uma imagem principal para o produto."
-      );
-      return;
-    }
+    // 2. Reconstruir a galeria pela ordem escolhida no formulário.
+    const imageUrls = imagens.map((imagem) => {
+      const url = urlsPorId.get(imagem.id);
 
-    try {
-      setLoading(true);
-
-      const dados = new FormData();
-
-      // Dados gerais
-      dados.append("code", form.code.trim().toUpperCase());
-      dados.append("name", form.name.trim());
-
-      dados.append(
-        "description",
-        form.description.trim()
-      );
-
-      dados.append("price", form.price);
-      dados.append("oldPrice", form.oldPrice);
-
-      // Disponibilidade booleana
-      dados.append(
-        "inStock",
-        String(form.inStock)
-      );
-
-      dados.append("categoryId", form.categoryId);
-      dados.append("featured", String(form.featured));
-      dados.append("active", String(form.active));
-      dados.append("promotion", String(form.promotion));
-
-      // Criar sequência completa da galeria
-      const novasImagens = imagens.filter(
-        (
-          imagem
-        ): imagem is ImagemProduto & { file: File } =>
-          imagem.nova && Boolean(imagem.file)
-      );
-
-      const indicesNovos = new Map<string, number>();
-
-      novasImagens.forEach((imagem, index) => {
-        indicesNovos.set(imagem.id, index);
-      });
-
-      const ordemImagens: ImagemOrdem[] = imagens.map(
-        (imagem) => {
-          if (imagem.nova) {
-            const index = indicesNovos.get(imagem.id);
-
-            if (index === undefined) {
-              throw new Error(
-                "Não foi possível identificar uma nova imagem."
-              );
-            }
-
-            return {
-              type: "new",
-              index,
-            };
-          }
-
-          return {
-            type: "existing",
-            url: imagem.url,
-          };
-        }
-      );
-
-      // Imagem principal pela posição actual
-      dados.append(
-        "mainImageIndex",
-        String(indicePrincipal)
-      );
-
-      if (modoEdicao) {
-        // Enviar ordem completa para PATCH
-        dados.append(
-          "imageOrder",
-          JSON.stringify(ordemImagens)
-        );
-
-        // Enviar novos ficheiros
-        novasImagens.forEach((imagem) => {
-          dados.append("newImages", imagem.file);
-        });
-      } else {
-        // Na criação, enviar todas as imagens
-        // pela ordem definida pelo utilizador
-        dados.append(
-          "imageOrder",
-          JSON.stringify(ordemImagens)
-        );
-
-        // A imagem principal deve ser enviada primeiro
-        const principal = imagens[indicePrincipal];
-
-        const restantes = imagens.filter(
-          (imagem) => imagem.id !== principal.id
-        );
-
-        [principal, ...restantes].forEach((imagem) => {
-          if (imagem.file) {
-            dados.append("images", imagem.file);
-          }
-        });
-      }
-
-      const url = modoEdicao
-        ? `/api/produtos/${produtoInicial!.id}`
-        : "/api/produtos";
-
-      const resposta = await fetch(url, {
-        method: modoEdicao ? "PATCH" : "POST",
-        body: dados,
-      });
-
-      const resultado = await resposta.json();
-
-      if (!resposta.ok) {
+      if (!url) {
         throw new Error(
-          resultado.error ||
-            "Não foi possível guardar o produto."
+          "Não foi possível reconstruir a galeria de imagens."
         );
       }
 
-      // Libertar previews temporárias
-      urlsTemporarias.current.forEach((url) => {
-        URL.revokeObjectURL(url);
-      });
+      return url;
+    });
 
-      urlsTemporarias.current.clear();
+    // 3. Identificar o URL da imagem principal.
+    const mainImage = imageUrls[indicePrincipal];
 
-      router.push("/admin/dashboard/produtos");
-      router.refresh();
-    } catch (error) {
-      setErro(
-        error instanceof Error
-          ? error.message
-          : "Ocorreu um erro ao guardar o produto."
-      );
-    } finally {
-      setLoading(false);
+    if (!mainImage) {
+      throw new Error("A imagem principal é inválida.");
     }
+
+    // 4. Enviar os dados e os URLs ao servidor.
+    const dados = new FormData();
+
+    dados.append("code", form.code.trim().toUpperCase());
+    dados.append("name", form.name.trim());
+    dados.append("description", form.description.trim());
+    dados.append("price", form.price);
+    dados.append("oldPrice", form.oldPrice);
+    dados.append("inStock", String(form.inStock));
+    dados.append("categoryId", form.categoryId);
+    dados.append("featured", String(form.featured));
+    dados.append("active", String(form.active));
+    dados.append("promotion", String(form.promotion));
+
+    dados.append("imageUrls", JSON.stringify(imageUrls));
+    dados.append("mainImage", mainImage);
+
+    const url = modoEdicao
+      ? `/api/produtos/${produtoInicial!.id}`
+      : "/api/produtos";
+
+    const resposta = await fetch(url, {
+      method: modoEdicao ? "PATCH" : "POST",
+      body: dados,
+    });
+
+    const resultado = await resposta.json();
+
+    if (!resposta.ok) {
+      throw new Error(
+        resultado.error || "Não foi possível guardar o produto."
+      );
+    }
+
+    // 5. Libertar os previews temporários.
+    urlsTemporarias.current.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
+
+    urlsTemporarias.current.clear();
+
+    router.push("/admin/dashboard/produtos");
+    router.refresh();
+  } catch (error) {
+    console.error("Erro ao guardar produto:", error);
+
+    setErro(
+      error instanceof Error
+        ? error.message
+        : "Ocorreu um erro ao guardar o produto."
+    );
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <form

@@ -2,28 +2,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { mkdir, writeFile, unlink } from "fs/promises";
-import path from "path";
-import { randomUUID } from "crypto";
+import { verificarSessaoGestor } from "@/lib/auth-gestor";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 8;
 
-const TIPOS_PERMITIDOS: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/gif": ".gif",
-};
+const BLOB_HOST =
+  "luw8besdsscy5bxa.public.blob.vercel-storage.com";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-interface ImagemOrdem {
-  type: "existing" | "new";
-  url?: string;
-  index?: number;
+function validarUrlBlob(valor: unknown): valor is string {
+  if (typeof valor !== "string" || !valor.trim()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(valor);
+
+    return (
+      url.protocol === "https:" &&
+      url.hostname === BLOB_HOST &&
+      /^\/produtos\/[a-zA-Z0-9._-]+$/.test(url.pathname) &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
 }
 
 function gerarSlug(nome: string) {
@@ -58,56 +65,6 @@ async function gerarSlugUnico(nome: string, id: string) {
     contador++;
   }
 }
-
-function obterCaminhoImagem(caminho: string) {
-  const prefixo = "/uploads/produtos/";
-
-  if (!caminho.startsWith(prefixo)) return null;
-
-  const nome = caminho.slice(prefixo.length);
-
-  if (
-    !nome ||
-    nome !== path.basename(nome) ||
-    nome.includes("..")
-  ) {
-    return null;
-  }
-
-  return path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "produtos",
-    nome
-  );
-}
-
-async function removerImagemSeNaoUtilizada(
-  caminho: string,
-  produtoId: string
-) {
-  const caminhoFisico = obterCaminhoImagem(caminho);
-
-  if (!caminhoFisico) return;
-
-  const outrosProdutos = await prisma.product.count({
-    where: {
-      id: { not: produtoId },
-      OR: [
-        { image: caminho },
-        { images: { has: caminho } },
-      ],
-    },
-  });
-
-  if (outrosProdutos === 0) {
-    await unlink(caminhoFisico).catch((error) => {
-      console.error("Erro ao remover imagem antiga:", error);
-    });
-  }
-}
-
 
 
 
@@ -219,11 +176,6 @@ function calcularRelevancia(
   const descricaoCandidato = extrairPalavras(
     candidato.description
   );
-
-  const palavrasBase = new Set([
-    ...nomeBase,
-    ...descricaoBase,
-  ]);
 
   const palavrasCandidato = new Set([
     ...nomeCandidato,
@@ -378,7 +330,7 @@ export async function GET(
       );
     }
 
-    const identificador = decodeURIComponent(id).trim();
+ const identificador = id.trim();
 
     // 1. Consultar produto principal.
     const produto = await prisma.product.findFirst({
@@ -528,13 +480,28 @@ export async function PATCH(
   request: NextRequest,
   { params }: RouteParams
 ) {
-  const novasImagensGuardadas: string[] = [];
-  let baseDadosActualizada = false;
-
   try {
+    // 1. Verificar sessão do gestor
+    const sessao = await verificarSessaoGestor();
+
+    if (!sessao) {
+      return NextResponse.json(
+        {
+          error: "Não autorizado. Inicie sessão como gestor.",
+        },
+        { status: 401 }
+      );
+    }
+
+    // 2. Identificar produto
     const { id } = await params;
 
-    // 1. Procurar produto
+    if (!id?.trim()) {
+      return NextResponse.json(
+        { error: "Identificador do produto inválido." },
+        { status: 400 }
+      );
+    }
 
     const produtoExistente = await prisma.product.findUnique({
       where: { id },
@@ -547,13 +514,19 @@ export async function PATCH(
       );
     }
 
+    // 3. Receber dados
     const dados = await request.formData();
-
-    // 2. Receber dados
 
     const code = dados.has("code")
       ? String(dados.get("code") ?? "").trim()
       : produtoExistente.code ?? "";
+
+      if (code.length > 80) {
+      return NextResponse.json(
+        { error: "O código não pode ultrapassar 80 caracteres." },
+        { status: 400 }
+      );
+    }
 
     const name = String(dados.get("name") || "").trim();
 
@@ -580,8 +553,8 @@ export async function PATCH(
     const promotion = dados.get("promotion") === "true";
 
     const price = Number(priceRaw);
-    // 3. Validar nome
 
+    // 4. Validar nome
     if (!name) {
       return NextResponse.json(
         { error: "O nome do produto é obrigatório." },
@@ -589,8 +562,7 @@ export async function PATCH(
       );
     }
 
-    // 4. Validar categoria
-
+    // 5. Validar categoria
     if (!categoryId) {
       return NextResponse.json(
         { error: "Seleccione uma categoria." },
@@ -598,8 +570,7 @@ export async function PATCH(
       );
     }
 
-    // 5. Validar preço
-
+    // 6. Validar preço
     if (
       !priceRaw ||
       !Number.isFinite(price) ||
@@ -611,6 +582,7 @@ export async function PATCH(
       );
     }
 
+    // 7. Validar disponibilidade
     if (
       inStockRaw !== "true" &&
       inStockRaw !== "false"
@@ -626,7 +598,6 @@ export async function PATCH(
     const inStock = inStockRaw === "true";
 
     // 8. Validar preço anterior
-
     let oldPrice: number | null = null;
 
     if (oldPriceRaw !== "") {
@@ -646,13 +617,13 @@ export async function PATCH(
       }
     }
 
-    // 9. Validar categoria
-
+    // 9. Verificar categoria
     const categoria = await prisma.category.findFirst({
       where: {
         id: categoryId,
         active: true,
       },
+      select: { id: true },
     });
 
     if (!categoria) {
@@ -665,7 +636,6 @@ export async function PATCH(
     }
 
     // 10. Verificar código duplicado
-
     if (code) {
       const codigoExistente = await prisma.product.findFirst({
         where: {
@@ -678,269 +648,120 @@ export async function PATCH(
       if (codigoExistente) {
         return NextResponse.json(
           {
-            error:
-              "Já existe outro produto com este código.",
+            error: "Já existe outro produto com este código.",
           },
           { status: 409 }
         );
       }
     }
 
-    // 11. Preparar imagens originais
-
+    // 11. Preparar imagens que já pertencem ao produto
     const imagensOriginais = new Set([
       produtoExistente.image,
       ...(produtoExistente.images || []),
     ]);
 
-    // 12. Receber novas imagens
+    // 12. Receber URLs enviadas pelo formulário
+    let imageUrls: unknown;
+    let mainImage: unknown;
 
-    const novasImagens = dados
-      .getAll("newImages")
-      .filter(
-        (item): item is File =>
-          item instanceof File && item.size > 0
+    try {
+      imageUrls = JSON.parse(
+        String(dados.get("imageUrls") || "[]")
       );
 
-    // 13. Validar novos ficheiros
+      mainImage = String(
+        dados.get("mainImage") || ""
+      );
+    } catch {
+      return NextResponse.json(
+        { error: "Os dados das imagens são inválidos." },
+        { status: 400 }
+      );
+    }
 
-    for (const imagem of novasImagens) {
-      if (imagem.size > MAX_FILE_SIZE) {
+    // 13. Validar quantidade de imagens
+    if (
+      !Array.isArray(imageUrls) ||
+      imageUrls.length < 1 ||
+      imageUrls.length > MAX_IMAGES
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            `O produto deve possuir entre 1 e ${MAX_IMAGES} imagens.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 14. Validar cada URL
+    const imagensValidas: string[] = [];
+
+    for (const url of imageUrls) {
+      if (typeof url !== "string" || !url.trim()) {
         return NextResponse.json(
-          {
-            error: `A imagem "${imagem.name}" ultrapassa 5 MB.`,
-          },
+          { error: "A galeria contém uma imagem inválida." },
           { status: 400 }
         );
       }
 
-      if (!TIPOS_PERMITIDOS[imagem.type]) {
+      // Uma imagem antiga só pode ser mantida
+      // se já pertencer a este produto.
+      const imagemAntiga = imagensOriginais.has(url);
+
+      // Uma imagem nova tem de pertencer ao nosso Blob.
+      const imagemBlob = validarUrlBlob(url);
+
+      if (!imagemAntiga && !imagemBlob) {
         return NextResponse.json(
           {
             error:
-              `O formato da imagem "${imagem.name}" não é permitido.`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // 14. Receber ordem completa da galeria
-
-    const ordemRecebida = dados.get("imageOrder");
-
-    if (typeof ordemRecebida !== "string") {
-      return NextResponse.json(
-        {
-          error: "A ordem da galeria não foi enviada.",
-        },
-        { status: 400 }
-      );
-    }
-
-    let ordemImagens: ImagemOrdem[];
-
-    try {
-      const parsed: unknown = JSON.parse(ordemRecebida);
-
-      if (!Array.isArray(parsed)) {
-        throw new Error("Formato inválido.");
-      }
-
-      ordemImagens = parsed as ImagemOrdem[];
-    } catch {
-      return NextResponse.json(
-        {
-          error: "A ordem das imagens é inválida.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 15. Validar imagens da sequência
-
-    for (const item of ordemImagens) {
-      if (
-        !item ||
-        typeof item !== "object" ||
-        !("type" in item)
-      ) {
-        return NextResponse.json(
-          {
-            error: "A galeria contém elementos inválidos.",
+              "Uma das imagens não pertence ao armazenamento autorizado.",
           },
           { status: 400 }
         );
       }
 
-      if (item.type === "existing") {
-        if (
-          typeof item.url !== "string" ||
-          !imagensOriginais.has(item.url) ||
-          !obterCaminhoImagem(item.url)
-        ) {
-          return NextResponse.json(
-            {
-              error: "Uma imagem existente não é válida.",
-            },
-            { status: 400 }
-          );
-        }
-      } else if (item.type === "new") {
-        if (
-          typeof item.index !== "number" ||
-          !Number.isInteger(item.index) ||
-          item.index < 0 ||
-          item.index >= novasImagens.length
-        ) {
-          return NextResponse.json(
-            {
-              error:
-                "Uma nova imagem contém um índice inválido.",
-            },
-            { status: 400 }
-          );
-        }
-      } else {
-        return NextResponse.json(
-          {
-            error: "Tipo de imagem desconhecido.",
-          },
-          { status: 400 }
-        );
-      }
+      imagensValidas.push(url);
     }
 
-    // 16. Impedir imagens duplicadas
-
-    const indicesNovos = ordemImagens
-      .filter((item) => item.type === "new")
-      .map((item) => item.index);
-
-    const urlsExistentes = ordemImagens
-      .filter((item) => item.type === "existing")
-      .map((item) => item.url);
-
+    // 15. Impedir URLs duplicadas
     if (
-      new Set(indicesNovos).size !== indicesNovos.length ||
-      new Set(urlsExistentes).size !== urlsExistentes.length
+      new Set(imagensValidas).size !== imagensValidas.length
     ) {
       return NextResponse.json(
-        {
-          error: "A galeria contém imagens duplicadas.",
-        },
+        { error: "A galeria contém imagens duplicadas." },
         { status: 400 }
       );
     }
 
-    // 17. Validar quantidade de imagens
-
+    // 16. Validar imagem principal
     if (
-      indicesNovos.length !== novasImagens.length ||
-      ordemImagens.length > MAX_IMAGES
+      typeof mainImage !== "string" ||
+      !imagensValidas.includes(mainImage)
     ) {
       return NextResponse.json(
-        {
-          error:
-            `A galeria deve conter todas as imagens seleccionadas e no máximo ${MAX_IMAGES} imagens.`,
-        },
+        { error: "A imagem principal seleccionada é inválida." },
         { status: 400 }
       );
     }
 
-    if (ordemImagens.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "O produto deve possuir pelo menos uma imagem.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 18. Validar imagem principal
-
-    const mainImageIndex = Number(
-      dados.get("mainImageIndex")
-    );
-
-    if (
-      !Number.isInteger(mainImageIndex) ||
-      mainImageIndex < 0 ||
-      mainImageIndex >= ordemImagens.length
-    ) {
-      return NextResponse.json(
-        {
-          error: "A imagem principal seleccionada é inválida.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 19. Guardar novas imagens
-
-    const pastaUploads = path.join(
-      process.cwd(),
-      "public",
-      "uploads",
-      "produtos"
-    );
-
-    await mkdir(pastaUploads, { recursive: true });
-
-    for (const imagem of novasImagens) {
-      const extensao = TIPOS_PERMITIDOS[imagem.type];
-      const nomeImagem = `${randomUUID()}${extensao}`;
-
-      const caminhoFisico = path.join(
-        pastaUploads,
-        nomeImagem
-      );
-
-      const caminhoPublico =
-        `/uploads/produtos/${nomeImagem}`;
-
-      const buffer = Buffer.from(
-        await imagem.arrayBuffer()
-      );
-
-      await writeFile(caminhoFisico, buffer);
-
-      novasImagensGuardadas.push(caminhoPublico);
-    }
-
-    // 20. Reconstruir galeria
-
-    const galeria = ordemImagens.map((item) => {
-      if (item.type === "existing") {
-        return item.url!;
-      }
-
-      return novasImagensGuardadas[item.index!];
-    });
-
-    // 21. Identificar imagem principal
-
-    const mainImage = galeria[mainImageIndex];
-
-    // 22. Colocar imagem principal na primeira posição
-
+    // 17. Organizar galeria com a imagem principal primeiro
     const galeriaOrdenada = [
       mainImage,
-      ...galeria.filter(
+      ...imagensValidas.filter(
         (imagem) => imagem !== mainImage
       ),
     ];
 
-    // 23. Gerar slug
-
+    // 18. Gerar slug
     const slug =
       name === produtoExistente.name
         ? produtoExistente.slug
         : await gerarSlugUnico(name, id);
 
-    // 24. Actualizar produto
-
+    // 19. Actualizar produto na base de dados
     const produto = await prisma.product.update({
       where: { id },
       data: {
@@ -963,33 +784,6 @@ export async function PATCH(
       },
     });
 
-    baseDadosActualizada = true;
-
-    // 25. Limpar imagens antigas não utilizadas
-
-    const imagensAnteriores = new Set([
-      produtoExistente.image,
-      ...(produtoExistente.images || []),
-    ]);
-
-    const imagensActuais = new Set(galeriaOrdenada);
-
-    for (const imagemAntiga of imagensAnteriores) {
-      if (!imagensActuais.has(imagemAntiga)) {
-        try {
-          await removerImagemSeNaoUtilizada(
-            imagemAntiga,
-            id
-          );
-        } catch (error) {
-          console.error(
-            "Não foi possível limpar uma imagem antiga:",
-            error
-          );
-        }
-      }
-    }
-
     return NextResponse.json({
       message: "Produto actualizado com sucesso.",
       produto,
@@ -997,25 +791,6 @@ export async function PATCH(
 
   } catch (error) {
     console.error("Erro ao actualizar produto:", error);
-
-    // Limpar novas imagens se a actualização falhar
-
-    if (!baseDadosActualizada) {
-      await Promise.all(
-        novasImagensGuardadas.map((imagem) => {
-          const caminho = obterCaminhoImagem(imagem);
-
-          return caminho
-            ? unlink(caminho).catch((erro) => {
-                console.error(
-                  "Erro ao limpar nova imagem:",
-                  erro
-                );
-              })
-            : Promise.resolve();
-        })
-      );
-    }
 
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&

@@ -1,20 +1,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { mkdir, writeFile, unlink } from "fs/promises";
-import path from "path";
-import { randomUUID } from "crypto";
 import { Prisma } from "@/generated/prisma/client";
+import { verificarSessaoGestor } from "@/lib/auth-gestor";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 8;
 
-const TIPOS_PERMITIDOS: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/gif": ".gif",
-};
+const BLOB_HOST =
+  "luw8besdsscy5bxa.public.blob.vercel-storage.com";
 
 function gerarSlug(nome: string) {
   return (
@@ -47,6 +40,54 @@ async function gerarSlugUnico(nome: string) {
   return slug;
 }
 
+/**
+ * Valida URLs de imagens do Vercel Blob.
+ * Apenas imagens HTTPS do nosso armazenamento e da pasta
+ * produtos são aceites.
+ */
+function validarUrlBlob(valor: unknown): valor is string {
+  if (typeof valor !== "string" || !valor.trim()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(valor);
+
+    const caminhoValido =
+      /^\/produtos\/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp|gif)$/i.test(
+        url.pathname
+      );
+
+    return (
+      url.protocol === "https:" &&
+      url.hostname === BLOB_HOST &&
+      url.port === "" &&
+      !url.username &&
+      !url.password &&
+      caminhoValido &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+function validarListaImagens(valor: unknown): valor is string[] {
+  if (!Array.isArray(valor)) return false;
+
+  if (valor.length < 1 || valor.length > MAX_IMAGES) {
+    return false;
+  }
+
+  if (!valor.every(validarUrlBlob)) {
+    return false;
+  }
+
+  return new Set(valor).size === valor.length;
+}
+
+// GET - Listar produtos
 export async function GET(request: NextRequest) {
   try {
     const pesquisa = request.nextUrl.searchParams
@@ -97,25 +138,38 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        error: "Não foi possível consultar os produtos.",
-      },
+      { error: "Não foi possível consultar os produtos." },
       { status: 500 }
     );
   }
 }
 
-// POST - Criar produto com código e várias imagens
+// POST - Criar produto com imagens no Vercel Blob
 export async function POST(request: NextRequest) {
-  const caminhosImagens: string[] = [];
-
   try {
+    // 1. Verificar autenticação do gestor
+    const sessao = await verificarSessaoGestor();
+
+    if (!sessao) {
+      return NextResponse.json(
+        {
+          error: "Não autorizado. Inicie sessão como gestor.",
+        },
+        { status: 401 }
+      );
+    }
+
+    // 2. Receber dados
     const dados = await request.formData();
 
-    // 1. Receber dados
-    const code = String(
-      dados.get("code") || ""
-    ).trim();
+    const code = String(dados.get("code") || "").trim();
+
+    if (code.length > 80) {
+  return NextResponse.json(
+    { error: "O código do produto não pode ultrapassar 80 caracteres." },
+    { status: 400 }
+  );
+}
 
     const name = String(
       dados.get("name") || dados.get("nome") || ""
@@ -125,17 +179,9 @@ export async function POST(request: NextRequest) {
       dados.get("description") || ""
     ).trim();
 
-    const priceRaw = String(
-      dados.get("price") || ""
-    ).trim();
-
-    const oldPriceRaw = String(
-      dados.get("oldPrice") || ""
-    ).trim();
-
-    const categoryId = String(
-      dados.get("categoryId") || ""
-    ).trim();
+    const priceRaw = String(dados.get("price") || "").trim();
+    const oldPriceRaw = String(dados.get("oldPrice") || "").trim();
+    const categoryId = String(dados.get("categoryId") || "").trim();
 
     const inStockRaw = dados.get("inStock");
 
@@ -144,29 +190,25 @@ export async function POST(request: NextRequest) {
     const promotion = dados.get("promotion") === "true";
 
     const price = Number(priceRaw);
-  
 
-    // 2. Receber imagens
-    const imagens = dados
-      .getAll("images")
-      .filter(
-        (item): item is File =>
-          item instanceof File && item.size > 0
+    // 3. Receber URLs das imagens
+    let imageUrls: unknown;
+    let mainImage: unknown;
+
+    try {
+      imageUrls = JSON.parse(
+        String(dados.get("imageUrls") || "[]")
       );
 
-    // Compatibilidade com formulário antigo
-    if (imagens.length === 0) {
-      const imagemAntiga = dados.get("image");
-
-      if (
-        imagemAntiga instanceof File &&
-        imagemAntiga.size > 0
-      ) {
-        imagens.push(imagemAntiga);
-      }
+      mainImage = String(dados.get("mainImage") || "");
+    } catch {
+      return NextResponse.json(
+        { error: "Dados das imagens inválidos." },
+        { status: 400 }
+      );
     }
 
-    // 3. Validar nome
+    // 4. Validar nome
     if (!name) {
       return NextResponse.json(
         { error: "O nome do produto é obrigatório." },
@@ -174,7 +216,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Validar categoria
+    // 5. Validar categoria
     if (!categoryId) {
       return NextResponse.json(
         { error: "Seleccione uma categoria." },
@@ -182,12 +224,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Validar preço
-    if (
-      !priceRaw ||
-      !Number.isFinite(price) ||
-      price <= 0
-    ) {
+    // 6. Validar preço
+    if (!priceRaw || !Number.isFinite(price) || price <= 0) {
       return NextResponse.json(
         { error: "Introduza um preço válido." },
         { status: 400 }
@@ -200,9 +238,7 @@ export async function POST(request: NextRequest) {
       inStockRaw !== "false"
     ) {
       return NextResponse.json(
-        {
-          error: "Seleccione a disponibilidade do produto.",
-        },
+        { error: "Seleccione a disponibilidade do produto." },
         { status: 400 }
       );
     }
@@ -221,69 +257,52 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json(
           {
-            error: "O preço anterior deve ser superior ao preço actual.",
+            error:
+              "O preço anterior deve ser superior ao preço actual.",
           },
           { status: 400 }
         );
       }
     }
 
-    // 9. Validar quantidade de imagens
-    if (imagens.length === 0) {
-      return NextResponse.json(
-        { error: "Seleccione pelo menos uma imagem." },
-        { status: 400 }
-      );
-    }
-
-    if (imagens.length > MAX_IMAGES) {
+    // 9. Validar URLs e quantidade de imagens
+    if (!validarListaImagens(imageUrls)) {
       return NextResponse.json(
         {
-          error: `Pode carregar no máximo ${MAX_IMAGES} imagens.`,
+          error:
+            "Seleccione entre 1 e 8 imagens válidas do Vercel Blob.",
         },
         { status: 400 }
       );
     }
 
-    // 10. Validar ficheiros
-    for (const imagem of imagens) {
-      if (imagem.size > MAX_FILE_SIZE) {
-        return NextResponse.json(
-          {
-            error: `A imagem "${imagem.name}" ultrapassa 5 MB.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      if (!TIPOS_PERMITIDOS[imagem.type]) {
-        return NextResponse.json(
-          {
-            error: `O formato da imagem "${imagem.name}" não é permitido.`,
-          },
-          { status: 400 }
-        );
-      }
+    if (
+      typeof mainImage !== "string" ||
+      !imageUrls.includes(mainImage)
+    ) {
+      return NextResponse.json(
+        { error: "A imagem principal é inválida." },
+        { status: 400 }
+      );
     }
 
-    // 11. Verificar categoria
+    // 10. Verificar categoria
     const categoria = await prisma.category.findFirst({
       where: {
         id: categoryId,
         active: true,
       },
+      select: { id: true },
     });
 
     if (!categoria) {
       return NextResponse.json(
-        {
-          error: "Categoria não encontrada ou inactiva.",
-        },
+        { error: "Categoria não encontrada ou inactiva." },
         { status: 404 }
       );
     }
 
-    // 12. Verificar código duplicado
+    // 11. Verificar código duplicado
     if (code) {
       const codigoExistente = await prisma.product.findUnique({
         where: { code },
@@ -293,52 +312,24 @@ export async function POST(request: NextRequest) {
       if (codigoExistente) {
         return NextResponse.json(
           {
-            error: "Já existe um componente registado com este código.",
+            error:
+              "Já existe um componente registado com este código.",
           },
           { status: 409 }
         );
       }
     }
 
-    // 13. Gerar slug
+    // 12. Gerar slug
     const slug = await gerarSlugUnico(name);
 
-    // 14. Preparar pasta de uploads
-    const pastaUploads = path.join(
-      process.cwd(),
-      "public",
-      "uploads",
-      "produtos"
-    );
+    // 13. Colocar imagem principal na primeira posição
+    const imagensOrdenadas = [
+      mainImage,
+      ...imageUrls.filter((url) => url !== mainImage),
+    ];
 
-    await mkdir(pastaUploads, { recursive: true });
-
-    // 15. Guardar imagens
-    for (const imagem of imagens) {
-      const extensao = TIPOS_PERMITIDOS[imagem.type];
-      const nomeImagem = `${randomUUID()}${extensao}`;
-
-      const caminhoFisico = path.join(
-        pastaUploads,
-        nomeImagem
-      );
-
-      const caminhoPublico =
-        `/uploads/produtos/${nomeImagem}`;
-
-      const buffer = Buffer.from(
-        await imagem.arrayBuffer()
-      );
-
-      await writeFile(caminhoFisico, buffer);
-
-      caminhosImagens.push(caminhoPublico);
-    }
-
-    // 16. Primeira imagem é a principal
-    const imagemPrincipal = caminhosImagens[0];
-
-    // 17. Criar produto
+    // 14. Criar produto
     const produto = await prisma.product.create({
       data: {
         code: code || null,
@@ -348,8 +339,8 @@ export async function POST(request: NextRequest) {
         price,
         oldPrice,
         inStock,
-        image: imagemPrincipal,
-        images: caminhosImagens,
+        image: mainImage,
+        images: imagensOrdenadas,
         featured,
         active,
         promotion,
@@ -367,24 +358,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-
   } catch (error) {
     console.error("Erro ao criar produto:", error);
-
-    // Limpar imagens se o registo falhar
-    await Promise.all(
-      caminhosImagens.map((caminho) =>
-        unlink(
-          path.join(
-            process.cwd(),
-            "public",
-            caminho.replace(/^\//, "")
-          )
-        ).catch((erro) => {
-          console.error("Erro ao remover imagem:", erro);
-        })
-      )
-    );
 
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -392,16 +367,15 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error: "O código ou identificador deste produto já existe.",
+          error:
+            "O código ou identificador deste produto já existe.",
         },
         { status: 409 }
       );
     }
 
     return NextResponse.json(
-      {
-        error: "Erro interno ao registar o produto.",
-      },
+      { error: "Erro interno ao registar o produto." },
       { status: 500 }
     );
   }
